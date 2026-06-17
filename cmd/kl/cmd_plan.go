@@ -13,9 +13,9 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/davesade/kilolock/internal/config"
-	"github.com/davesade/kilolock/internal/plan"
-	"github.com/davesade/kilolock/internal/slice"
+	"github.com/kilolockio/kilolock/internal/plan"
+	"github.com/kilolockio/kilolock/internal/slice"
+	"github.com/kilolockio/kilolock/pkg/config"
 )
 
 // varFlag implements flag.Value for the repeatable --var=NAME=VALUE

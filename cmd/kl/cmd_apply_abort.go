@@ -9,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/pkg/store"
 )
 
 func runApplyAbort(args []string) int {

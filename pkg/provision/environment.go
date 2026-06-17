@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/davesade/kilolock/internal/db"
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/pkg/db"
+	"github.com/kilolockio/kilolock/pkg/store"
 )
 
 // SharedHostConfig is input for provisioning an environment database on a

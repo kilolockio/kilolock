@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/davesade/kilolock/internal/auth"
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/pkg/auth"
+	"github.com/kilolockio/kilolock/pkg/store"
 )
 
 func TestFirstNonEmptyControlActor(t *testing.T) {

@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/pkg/store"
 )
 
 // GCPDedicatedConfig configures Terraform-based dedicated Cloud SQL provisioning.

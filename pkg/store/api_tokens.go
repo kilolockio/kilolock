@@ -10,7 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/davesade/kilolock/internal/auth"
+	"github.com/kilolockio/kilolock/pkg/auth"
 )
 
 // APITokenRow is metadata for a stored API token (never includes secret).

@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/davesade/kilolock/internal/auth"
-	"github.com/davesade/kilolock/internal/db"
-	"github.com/davesade/kilolock/internal/migrate"
-	"github.com/davesade/kilolock/internal/provision"
-	"github.com/davesade/kilolock/internal/testdb"
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/pkg/auth"
+	"github.com/kilolockio/kilolock/pkg/db"
+	"github.com/kilolockio/kilolock/pkg/migrate"
+	"github.com/kilolockio/kilolock/pkg/provision"
+	"github.com/kilolockio/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/pkg/testdb"
 )
 
 func TestRouter_SeparateEnvironmentDatabase(t *testing.T) {

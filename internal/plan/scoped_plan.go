@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/davesade/kilolock/internal/slice"
+	"github.com/kilolockio/kilolock/internal/slice"
 )
 
 type ScopedPlanOptions struct {

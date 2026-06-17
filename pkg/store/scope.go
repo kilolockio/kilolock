@@ -6,7 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/davesade/kilolock/internal/auth"
+	"github.com/kilolockio/kilolock/pkg/auth"
 )
 
 // NewIsolated returns a Store for a dedicated environment database. State

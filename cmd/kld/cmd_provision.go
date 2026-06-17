@@ -7,8 +7,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/davesade/kilolock/internal/provision"
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/pkg/provision"
+	"github.com/kilolockio/kilolock/pkg/store"
 )
 
 func runProvision(args []string) int {

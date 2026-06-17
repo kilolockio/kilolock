@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/davesade/kilolock/internal/plan"
+	"github.com/kilolockio/kilolock/internal/plan"
 )
 
 func formatFileScopeEmptyWriteSet(f *plan.File, spec *plan.PlanSpec, scope *plan.FileScope) error {

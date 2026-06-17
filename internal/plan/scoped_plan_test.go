@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/davesade/kilolock/internal/slice"
+	"github.com/kilolockio/kilolock/internal/slice"
 )
 
 func TestSelectedRootResourceAddresses(t *testing.T) {

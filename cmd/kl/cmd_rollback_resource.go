@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/pkg/store"
 )
 
 func runRollbackResource(args []string) int {

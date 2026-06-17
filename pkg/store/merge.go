@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/davesade/kilolock/internal/tfstate"
+	"github.com/kilolockio/kilolock/internal/tfstate"
 )
 
 // 3-way state merge for optimistic POST.

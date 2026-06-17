@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/davesade/kilolock/internal/testdb"
-	"github.com/davesade/kilolock/internal/tfstate"
+	"github.com/kilolockio/kilolock/internal/tfstate"
+	"github.com/kilolockio/kilolock/pkg/testdb"
 )
 
 // seedStateWithResources writes one state_version for "qtest" carrying

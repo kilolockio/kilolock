@@ -1,7 +1,7 @@
 # Graph schema (v0)
 
 This document explains the v0 PostgreSQL schema and the reasoning behind it.
-The actual DDL lives in `internal/migrate/migrations/0001_baseline.sql`.
+The actual DDL lives in `pkg/migrate/migrations/0001_baseline.sql`.
 
 The v0 schema has one job: faithfully represent a Terraform v4 state file as
 a normalized, queryable graph, with full round-trip fidelity. Optimization

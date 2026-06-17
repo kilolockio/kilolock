@@ -12,8 +12,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/davesade/kilolock/internal/plan"
-	"github.com/davesade/kilolock/internal/slice"
+	"github.com/kilolockio/kilolock/internal/plan"
+	"github.com/kilolockio/kilolock/internal/slice"
 )
 
 // runTerraform executes `terraform init` followed by

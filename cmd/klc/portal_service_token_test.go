@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/davesade/kilolock/internal/config"
+	"github.com/kilolockio/kilolock/pkg/config"
 )
 
 func TestWithAuth_AllowsPortalServiceToken(t *testing.T) {

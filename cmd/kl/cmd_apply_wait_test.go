@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/davesade/kilolock/internal/apply"
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/internal/apply"
+	"github.com/kilolockio/kilolock/pkg/store"
 )
 
 func mkConflict(addr, mode, holder, applyID string, leaseSecs int) store.ActiveReservation {

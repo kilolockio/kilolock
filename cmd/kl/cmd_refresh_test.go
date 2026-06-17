@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/davesade/kilolock/internal/refresh"
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/internal/refresh"
+	"github.com/kilolockio/kilolock/pkg/store"
 )
 
 // resolveSearchPaths is the only piece of CLI logic with non-trivial

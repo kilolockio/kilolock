@@ -11,7 +11,7 @@ import (
 	plugin "github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
 
-	tfplugin5 "github.com/davesade/kilolock/internal/grpcwire/tfplugin5"
+	tfplugin5 "github.com/kilolockio/kilolock/internal/grpcwire/tfplugin5"
 )
 
 // pluginV5 is the go-plugin Plugin shim for protocol v5. Mirror of

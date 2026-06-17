@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/davesade/kilolock/internal/slice"
+	"github.com/kilolockio/kilolock/internal/slice"
 )
 
 func changedReadSetAddresses(baseRaw, currentRaw []byte, readSet []string) ([]string, error) {

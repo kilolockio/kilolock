@@ -9,7 +9,7 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/pkg/store"
 )
 
 // runTag dispatches `kl tag <subcommand>`. Subcommands:

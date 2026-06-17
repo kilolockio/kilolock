@@ -237,7 +237,7 @@ terraform plan -refresh=false | tail -5
 > Terraform. Built on Postgres so you can SQL-query your
 > infrastructure the same way you query everything else.
 > Open source. Self-hosted today. Hosted offering coming.
-> Try it: `git clone github.com/davesade/kilolock && make
+> Try it: `git clone github.com/kilolockio/kilolock && make
 > db-up && make build && make demo-warm`."
 
 ## Bonus beat — reservation wait feedback (optional, ~60 s)

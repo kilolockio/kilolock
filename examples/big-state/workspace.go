@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/davesade/kilolock/internal/plan"
-	"github.com/davesade/kilolock/internal/slice"
+	"github.com/kilolockio/kilolock/internal/plan"
+	"github.com/kilolockio/kilolock/internal/slice"
 )
 
 // Workspace represents an isolated temporary directory for running

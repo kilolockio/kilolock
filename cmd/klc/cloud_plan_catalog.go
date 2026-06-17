@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/davesade/kilolock/cloud/controlbilling"
+	"github.com/kilolockio/kilolock/cloud/controlbilling"
 )
 
 type stripePlanCatalog map[string]controlbilling.CatalogPlan

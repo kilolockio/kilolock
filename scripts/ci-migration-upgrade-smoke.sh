@@ -17,7 +17,7 @@ require go
 require curl
 require awk
 
-LATEST_VERSION="$(ls -1 internal/migrate/migrations/*.sql | sed -E 's#.*/([0-9]+)_.*#\1#' | sort -n | tail -1)"
+LATEST_VERSION="$(ls -1 pkg/migrate/migrations/*.sql | sed -E 's#.*/([0-9]+)_.*#\1#' | sort -n | tail -1)"
 if [[ -z "${LATEST_VERSION}" ]]; then
   echo "failed to detect latest migration version" >&2
   exit 1
@@ -70,8 +70,8 @@ seed_schema_to() {
   echo "==> reset schema"
   psql "$KL_DATABASE_URL" -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;' >/dev/null
   echo "==> apply baseline + migrations up to ${target}"
-  psql "$KL_DATABASE_URL" -f internal/migrate/migrations/0001_baseline.sql >/dev/null
-  for f in internal/migrate/migrations/*.sql; do
+  psql "$KL_DATABASE_URL" -f pkg/migrate/migrations/0001_baseline.sql >/dev/null
+  for f in pkg/migrate/migrations/*.sql; do
     local base ver
     base="$(basename "$f")"
     ver="$(echo "$base" | sed -E 's/^([0-9]+)_.*$/\1/')"

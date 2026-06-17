@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/davesade/kilolock/internal/auth"
 	"github.com/jackc/pgx/v5"
+	"github.com/kilolockio/kilolock/pkg/auth"
 )
 
 type RBACGrantRow struct {

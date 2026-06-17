@@ -8,8 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/davesade/kilolock/internal/auth"
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/pkg/auth"
+	"github.com/kilolockio/kilolock/pkg/store"
 )
 
 var ErrEnvironmentUnavailable = errors.New("environment unavailable")

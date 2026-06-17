@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/davesade/kilolock/internal/testdb"
+	"github.com/kilolockio/kilolock/pkg/testdb"
 )
 
 func TestGetStateStatus_OptimisticModeShowsAllLocksAndReservations(t *testing.T) {

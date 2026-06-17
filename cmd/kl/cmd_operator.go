@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/davesade/kilolock/internal/bootstrapinit"
+	"github.com/kilolockio/kilolock/pkg/bootstrapinit"
 )
 
 func runOperator(args []string) int {

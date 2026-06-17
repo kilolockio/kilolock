@@ -30,7 +30,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/davesade/kilolock/internal/testdb"
+	"github.com/kilolockio/kilolock/pkg/testdb"
 )
 
 // seedOptimisticStateRaw produces a parseable Terraform v4 state for

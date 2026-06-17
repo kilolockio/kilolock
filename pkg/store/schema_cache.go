@@ -9,7 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/davesade/kilolock/internal/provider"
+	"github.com/kilolockio/kilolock/internal/provider"
 )
 
 // ErrSchemaNotCached is returned by GetProviderSchema when no entry

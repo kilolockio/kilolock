@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/davesade/kilolock/internal/auth"
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/pkg/auth"
+	"github.com/kilolockio/kilolock/pkg/store"
 )
 
 type lookupFunc func(ctx context.Context, id string) (store.EnvironmentRow, error)

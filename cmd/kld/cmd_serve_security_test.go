@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/davesade/kilolock/internal/config"
+	"github.com/kilolockio/kilolock/pkg/config"
 )
 
 func TestValidateServeSecurityConfig_TLSProd(t *testing.T) {

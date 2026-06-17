@@ -8,9 +8,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/davesade/kilolock/internal/plan"
-	"github.com/davesade/kilolock/internal/slice"
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/internal/plan"
+	"github.com/kilolockio/kilolock/internal/slice"
+	"github.com/kilolockio/kilolock/pkg/store"
 )
 
 // Run drives one end-to-end `kl apply` invocation. The

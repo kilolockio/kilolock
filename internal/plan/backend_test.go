@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/davesade/kilolock/internal/tfstate"
+	"github.com/kilolockio/kilolock/internal/tfstate"
 )
 
 // ---------------------------------------------------------------------------

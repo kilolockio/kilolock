@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/davesade/kilolock/internal/config"
+	"github.com/kilolockio/kilolock/pkg/config"
 )
 
 func TestPublicAPIGuard_ProdDefaultsToHidden(t *testing.T) {

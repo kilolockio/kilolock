@@ -16,9 +16,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/davesade/kilolock/internal/db"
-	"github.com/davesade/kilolock/internal/provider"
-	"github.com/davesade/kilolock/internal/testdb"
+	"github.com/kilolockio/kilolock/internal/provider"
+	"github.com/kilolockio/kilolock/pkg/db"
+	"github.com/kilolockio/kilolock/pkg/testdb"
 )
 
 // jsonEqual reports whether two JSON-encoded byte slices represent

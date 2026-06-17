@@ -9,8 +9,8 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 
-	"github.com/davesade/kilolock/internal/provider"
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/internal/provider"
+	"github.com/kilolockio/kilolock/pkg/store"
 )
 
 // ProductionFactory is the v1.6c implementation of ClientFactory. It

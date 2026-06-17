@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/davesade/kilolock/internal/tfstate"
+	"github.com/kilolockio/kilolock/internal/tfstate"
 )
 
 // FetchCurrentStateFromBackend reads the current state bytes from the

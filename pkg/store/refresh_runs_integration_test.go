@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/davesade/kilolock/internal/db"
-	"github.com/davesade/kilolock/internal/testdb"
+	"github.com/kilolockio/kilolock/pkg/db"
+	"github.com/kilolockio/kilolock/pkg/testdb"
 )
 
 // resetRefreshRuns truncates the refresh_runs table between tests

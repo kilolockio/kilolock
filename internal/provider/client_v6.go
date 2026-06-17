@@ -11,7 +11,7 @@ import (
 	plugin "github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
 
-	tfplugin6 "github.com/davesade/kilolock/internal/grpcwire/tfplugin6"
+	tfplugin6 "github.com/kilolockio/kilolock/internal/grpcwire/tfplugin6"
 )
 
 // pluginV6 is the go-plugin Plugin shim that lets the framework

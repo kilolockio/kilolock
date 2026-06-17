@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/pkg/store"
 )
 
 func mkVersion(serial int64, source, actor string, age time.Duration, isCurrent bool, size int) store.StateVersionInfo {

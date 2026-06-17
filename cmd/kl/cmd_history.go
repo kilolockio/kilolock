@@ -11,8 +11,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/davesade/kilolock/internal/plan"
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/internal/plan"
+	"github.com/kilolockio/kilolock/pkg/store"
 )
 
 // runHistory drives `kl history`. Prints recent state_versions

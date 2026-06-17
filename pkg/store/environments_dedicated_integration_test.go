@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/davesade/kilolock/internal/testdb"
+	"github.com/kilolockio/kilolock/pkg/testdb"
 )
 
 func TestRequestDedicatedUpgrade(t *testing.T) {

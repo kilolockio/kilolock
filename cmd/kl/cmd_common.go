@@ -8,8 +8,8 @@ import (
 	"os/user"
 	"time"
 
-	"github.com/davesade/kilolock/internal/auth"
-	"github.com/davesade/kilolock/internal/config"
+	"github.com/kilolockio/kilolock/pkg/auth"
+	"github.com/kilolockio/kilolock/pkg/config"
 )
 
 // loadConfigOrExit reads + validates config, terminating the process with

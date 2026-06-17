@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/davesade/kilolock/internal/config"
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/pkg/config"
+	"github.com/kilolockio/kilolock/pkg/store"
 )
 
 type fakeEnvLister struct {

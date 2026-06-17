@@ -9,8 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/davesade/kilolock/internal/auth"
-	"github.com/davesade/kilolock/internal/tfstate"
+	"github.com/kilolockio/kilolock/internal/tfstate"
+	"github.com/kilolockio/kilolock/pkg/auth"
 )
 
 // ErrStateNotFound is returned when a state with the given name does not

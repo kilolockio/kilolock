@@ -1,8 +1,8 @@
 # Kilolock
 
-[![ci](https://github.com/davesade/kilolock/actions/workflows/ci.yml/badge.svg)](https://github.com/davesade/kilolock/actions/workflows/ci.yml)
-[![lint](https://github.com/davesade/kilolock/actions/workflows/lint.yml/badge.svg)](https://github.com/davesade/kilolock/actions/workflows/lint.yml)
-[![go](https://img.shields.io/github/go-mod/go-version/davesade/kilolock)](./go.mod)
+[![ci](https://github.com/kilolockio/kilolock/actions/workflows/ci.yml/badge.svg)](https://github.com/kilolockio/kilolock/actions/workflows/ci.yml)
+[![lint](https://github.com/kilolockio/kilolock/actions/workflows/lint.yml/badge.svg)](https://github.com/kilolockio/kilolock/actions/workflows/lint.yml)
+[![go](https://img.shields.io/github/go-mod/go-version/kilolockio/kilolock)](./go.mod)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
 
 Project site: [docs/index.html](./docs/index.html)

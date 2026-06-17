@@ -5,7 +5,7 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/davesade/kilolock/internal/plan"
+	"github.com/kilolockio/kilolock/internal/plan"
 )
 
 const (

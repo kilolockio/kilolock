@@ -10,13 +10,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/davesade/kilolock/internal/auth"
-	"github.com/davesade/kilolock/internal/bootstrapinit"
-	"github.com/davesade/kilolock/internal/config"
-	"github.com/davesade/kilolock/internal/db"
-	"github.com/davesade/kilolock/internal/migrate"
-	"github.com/davesade/kilolock/internal/provision"
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/pkg/auth"
+	"github.com/kilolockio/kilolock/pkg/bootstrapinit"
+	"github.com/kilolockio/kilolock/pkg/config"
+	"github.com/kilolockio/kilolock/pkg/db"
+	"github.com/kilolockio/kilolock/pkg/migrate"
+	"github.com/kilolockio/kilolock/pkg/provision"
+	"github.com/kilolockio/kilolock/pkg/store"
 )
 
 func main() {

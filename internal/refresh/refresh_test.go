@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/davesade/kilolock/internal/provider"
-	"github.com/davesade/kilolock/internal/tfstate"
+	"github.com/kilolockio/kilolock/internal/provider"
+	"github.com/kilolockio/kilolock/internal/tfstate"
 )
 
 // recordingClient is a stand-in for provider.Client that:

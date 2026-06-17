@@ -1,7 +1,7 @@
 SHELL := /usr/bin/env bash
 
 GO              ?= go
-MODULE          := github.com/davesade/kilolock
+MODULE          := github.com/kilolockio/kilolock
 BIN_DIR         := bin
 KL_BIN   := $(BIN_DIR)/kl
 KLD_BIN := $(BIN_DIR)/kld

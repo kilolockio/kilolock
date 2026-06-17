@@ -40,10 +40,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/davesade/kilolock/internal/db"
-	"github.com/davesade/kilolock/internal/migrate"
-	"github.com/davesade/kilolock/internal/testdb"
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/pkg/db"
+	"github.com/kilolockio/kilolock/pkg/migrate"
+	"github.com/kilolockio/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/pkg/testdb"
 )
 
 // TestApplyPattern_Bench simulates a terraform apply that creates N

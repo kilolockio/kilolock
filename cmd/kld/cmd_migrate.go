@@ -12,8 +12,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/davesade/kilolock/internal/migrate"
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/pkg/migrate"
+	"github.com/kilolockio/kilolock/pkg/store"
 )
 
 type migrationSummary struct {

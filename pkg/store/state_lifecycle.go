@@ -5,8 +5,8 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/davesade/kilolock/internal/auth"
 	"github.com/jackc/pgx/v5"
+	"github.com/kilolockio/kilolock/pkg/auth"
 )
 
 func (s *Store) SetStateLifecycleStatusAudit(ctx context.Context, name string, status LifecycleStatus, actor, reason string) error {

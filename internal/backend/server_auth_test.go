@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/davesade/kilolock/internal/auth"
+	"github.com/kilolockio/kilolock/pkg/auth"
 )
 
 func TestHandler_StaticTokenAuth(t *testing.T) {

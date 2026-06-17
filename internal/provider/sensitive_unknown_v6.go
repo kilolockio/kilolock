@@ -7,7 +7,7 @@ import (
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 
-	tfplugin6 "github.com/davesade/kilolock/internal/grpcwire/tfplugin6"
+	tfplugin6 "github.com/kilolockio/kilolock/internal/grpcwire/tfplugin6"
 )
 
 // readResourceSensitivePathsFieldNumber is the proto field number used by newer

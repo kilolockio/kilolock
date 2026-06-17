@@ -15,11 +15,11 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/davesade/kilolock/internal/backend"
-	"github.com/davesade/kilolock/internal/config"
-	"github.com/davesade/kilolock/internal/migrate"
-	"github.com/davesade/kilolock/internal/routing"
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/internal/backend"
+	"github.com/kilolockio/kilolock/internal/routing"
+	"github.com/kilolockio/kilolock/pkg/config"
+	"github.com/kilolockio/kilolock/pkg/migrate"
+	"github.com/kilolockio/kilolock/pkg/store"
 )
 
 func runServe(args []string) int {

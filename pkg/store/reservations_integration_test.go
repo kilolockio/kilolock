@@ -21,8 +21,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/davesade/kilolock/internal/db"
-	"github.com/davesade/kilolock/internal/testdb"
+	"github.com/kilolockio/kilolock/pkg/db"
+	"github.com/kilolockio/kilolock/pkg/testdb"
 )
 
 // resetApplyV2Tables wipes the v2 audit + reservations tables for

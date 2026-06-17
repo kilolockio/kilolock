@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/davesade/kilolock/internal/plan"
+	"github.com/kilolockio/kilolock/internal/plan"
 )
 
 // ---------------------------------------------------------------------------

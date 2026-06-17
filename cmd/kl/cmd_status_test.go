@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/pkg/store"
 )
 
 // TestRenderStatusTable_NoLockNoApplies pins the all-clear shape.

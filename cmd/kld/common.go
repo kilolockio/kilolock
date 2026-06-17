@@ -7,9 +7,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/davesade/kilolock/internal/auth"
-	"github.com/davesade/kilolock/internal/config"
-	"github.com/davesade/kilolock/internal/db"
+	"github.com/kilolockio/kilolock/pkg/auth"
+	"github.com/kilolockio/kilolock/pkg/config"
+	"github.com/kilolockio/kilolock/pkg/db"
 )
 
 func loadConfigOrExit(subcommand string) config.Config {

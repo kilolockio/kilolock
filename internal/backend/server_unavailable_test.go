@@ -7,7 +7,7 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/davesade/kilolock/internal/routing"
+	"github.com/kilolockio/kilolock/internal/routing"
 )
 
 func TestIsEnvironmentUnavailableError(t *testing.T) {

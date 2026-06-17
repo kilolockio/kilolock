@@ -3,7 +3,7 @@ package testdb
 import (
 	"context"
 
-	"github.com/davesade/kilolock/internal/auth"
+	"github.com/kilolockio/kilolock/pkg/auth"
 )
 
 // TenantCtx returns a context derived from parent that carries the

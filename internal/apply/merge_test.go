@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/davesade/kilolock/internal/slice"
+	"github.com/kilolockio/kilolock/internal/slice"
 )
 
 // makeTrunk constructs a TrunkState with the given (address ->

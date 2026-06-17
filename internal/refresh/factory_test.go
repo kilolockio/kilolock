@@ -11,7 +11,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 
-	"github.com/davesade/kilolock/internal/provider"
+	"github.com/kilolockio/kilolock/internal/provider"
 )
 
 func TestNewProductionFactory_Validation(t *testing.T) {

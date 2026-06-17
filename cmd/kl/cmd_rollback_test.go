@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/pkg/store"
 )
 
 func mkPreviewVersion(id string, serial int64, source, actor string) *store.StateVersionInfo {

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/davesade/kilolock/internal/testdb"
+	"github.com/kilolockio/kilolock/pkg/testdb"
 )
 
 func TestCreateTenantWithDefaultEnvironment_GeneratesWorkspaceSlugAndName(t *testing.T) {

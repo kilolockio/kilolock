@@ -8,7 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/davesade/kilolock/internal/auth"
+	"github.com/kilolockio/kilolock/pkg/auth"
 )
 
 // RefreshRunStatus enumerates the terminal and in-flight states of a

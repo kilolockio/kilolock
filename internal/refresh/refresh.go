@@ -51,9 +51,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/davesade/kilolock/internal/provider"
-	"github.com/davesade/kilolock/internal/tfstate"
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/internal/provider"
+	"github.com/kilolockio/kilolock/internal/tfstate"
+	"github.com/kilolockio/kilolock/pkg/store"
 )
 
 // OpenedClient bundles a configured RPC client with the metadata

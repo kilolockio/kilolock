@@ -10,7 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/davesade/kilolock/internal/db"
+	"github.com/kilolockio/kilolock/pkg/db"
 )
 
 // PoolCache holds pgx pools keyed by DSN with a simple LRU eviction policy.

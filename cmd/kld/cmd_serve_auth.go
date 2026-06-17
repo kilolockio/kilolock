@@ -6,10 +6,10 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/davesade/kilolock/internal/auth"
-	"github.com/davesade/kilolock/internal/config"
-	"github.com/davesade/kilolock/internal/provision"
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/pkg/auth"
+	"github.com/kilolockio/kilolock/pkg/config"
+	"github.com/kilolockio/kilolock/pkg/provision"
+	"github.com/kilolockio/kilolock/pkg/store"
 )
 
 func buildAuthenticator(cfg config.Config, st *store.Store) (auth.Authenticator, error) {

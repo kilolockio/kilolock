@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/davesade/kilolock/cloud/billing"
-	"github.com/davesade/kilolock/cloud/controlbilling"
+	"github.com/kilolockio/kilolock/cloud/billing"
+	"github.com/kilolockio/kilolock/cloud/controlbilling"
 )
 
 type cloudFeatures struct {

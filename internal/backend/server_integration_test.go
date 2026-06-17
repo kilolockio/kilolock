@@ -26,11 +26,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/davesade/kilolock/internal/auth"
-	"github.com/davesade/kilolock/internal/db"
-	"github.com/davesade/kilolock/internal/migrate"
-	"github.com/davesade/kilolock/internal/testdb"
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/pkg/auth"
+	"github.com/kilolockio/kilolock/pkg/db"
+	"github.com/kilolockio/kilolock/pkg/migrate"
+	"github.com/kilolockio/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/pkg/testdb"
 )
 
 // assertJSONEqual compares two JSON byte slices for semantic equality.

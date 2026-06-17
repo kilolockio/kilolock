@@ -11,8 +11,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/davesade/kilolock/internal/auth"
-	"github.com/davesade/kilolock/internal/tfstate"
+	"github.com/kilolockio/kilolock/internal/tfstate"
+	"github.com/kilolockio/kilolock/pkg/auth"
 )
 
 // StateVersionInfo is the operator-facing metadata for one row of

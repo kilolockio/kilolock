@@ -213,7 +213,7 @@ pkg/store/
     refresh_runs.go             (BeginRefreshRun, FinishRefreshRun, GetRefreshRun, ListRefreshRuns)
     refresh_runs_integration_test.go
 
-internal/migrate/migrations/
+pkg/migrate/migrations/
     0005_refresh_runs.sql       (audit table + status CHECK constraints)
 
 cmd/kl/

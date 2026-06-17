@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/davesade/kilolock/internal/plan"
+	"github.com/kilolockio/kilolock/internal/plan"
 )
 
 func TestTargetGuardViolation(t *testing.T) {

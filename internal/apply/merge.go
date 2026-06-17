@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/davesade/kilolock/internal/slice"
+	"github.com/kilolockio/kilolock/internal/slice"
 )
 
 // mergeResult bundles the byte-level output of buildMergedState

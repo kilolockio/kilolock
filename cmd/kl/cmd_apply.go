@@ -16,11 +16,11 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/davesade/kilolock/internal/apply"
-	"github.com/davesade/kilolock/internal/config"
-	"github.com/davesade/kilolock/internal/plan"
-	"github.com/davesade/kilolock/internal/slice"
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/internal/apply"
+	"github.com/kilolockio/kilolock/internal/plan"
+	"github.com/kilolockio/kilolock/internal/slice"
+	"github.com/kilolockio/kilolock/pkg/config"
+	"github.com/kilolockio/kilolock/pkg/store"
 )
 
 // runApply is the entrypoint for `kl apply` — Kilolock's

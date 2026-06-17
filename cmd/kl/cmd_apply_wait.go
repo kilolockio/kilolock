@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/davesade/kilolock/internal/apply"
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/internal/apply"
+	"github.com/kilolockio/kilolock/pkg/store"
 )
 
 // newReservationWaitRenderer returns the apply.WaitEvent callback the

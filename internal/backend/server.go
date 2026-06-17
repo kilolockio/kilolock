@@ -22,10 +22,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/davesade/kilolock/internal/auth"
-	"github.com/davesade/kilolock/internal/refresh"
-	"github.com/davesade/kilolock/internal/routing"
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/internal/refresh"
+	"github.com/kilolockio/kilolock/internal/routing"
+	"github.com/kilolockio/kilolock/pkg/auth"
+	"github.com/kilolockio/kilolock/pkg/store"
 )
 
 func requestLogAttrs(ctx context.Context, state string) []any {

@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/davesade/kilolock/internal/db"
-	"github.com/davesade/kilolock/internal/testdb"
+	"github.com/kilolockio/kilolock/pkg/db"
+	"github.com/kilolockio/kilolock/pkg/testdb"
 )
 
 // resetProviderConfigs truncates the provider_configs table between

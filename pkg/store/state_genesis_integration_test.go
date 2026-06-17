@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/davesade/kilolock/internal/testdb"
-	"github.com/davesade/kilolock/internal/tfstate"
+	"github.com/kilolockio/kilolock/internal/tfstate"
+	"github.com/kilolockio/kilolock/pkg/testdb"
 )
 
 func TestEnsureCurrentStateInfo_BootstrapsGenesisVersion(t *testing.T) {

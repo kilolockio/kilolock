@@ -35,11 +35,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/davesade/kilolock/internal/db"
-	"github.com/davesade/kilolock/internal/migrate"
-	"github.com/davesade/kilolock/internal/plan"
-	"github.com/davesade/kilolock/internal/testdb"
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/internal/plan"
+	"github.com/kilolockio/kilolock/pkg/db"
+	"github.com/kilolockio/kilolock/pkg/migrate"
+	"github.com/kilolockio/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/pkg/testdb"
 )
 
 // applyTestRig bundles the per-test infrastructure: a fresh Store,

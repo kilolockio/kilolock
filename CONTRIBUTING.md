@@ -47,7 +47,7 @@ You need:
 - A Unix-like shell (the Makefile assumes `bash`)
 
 ```sh
-git clone https://github.com/davesade/kilolock.git
+git clone https://github.com/kilolockio/kilolock.git
 cd kl
 make db-up
 KL_DATABASE_URL='postgres://kl:kl@localhost:5432/kl?sslmode=disable' \
@@ -74,7 +74,7 @@ A few style notes that come up often:
 - **SQL lives next to the Go that runs it.** Inline `const querySQL = ...`
   is preferred over a separate `.sql` file for query-time SQL.
   Migration files are the exception — they live in
-  `internal/migrate/migrations/`.
+  `pkg/migrate/migrations/`.
 - **Tests next to code, integration tests `//go:build integration`
   gated.** See `internal/backend/server_integration_test.go` for the
   pattern.

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/pkg/store"
 )
 
 func TestDescribeResourceHistoryRow(t *testing.T) {

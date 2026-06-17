@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/davesade/kilolock/internal/config"
+	"github.com/kilolockio/kilolock/pkg/config"
 )
 
 func FromRuntimeConfig(_ config.Config) map[string]any {

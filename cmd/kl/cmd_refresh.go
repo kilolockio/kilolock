@@ -15,8 +15,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/davesade/kilolock/internal/refresh"
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/internal/refresh"
+	"github.com/kilolockio/kilolock/pkg/store"
 )
 
 // runRefresh is the entrypoint for `kl refresh <state-name>`.

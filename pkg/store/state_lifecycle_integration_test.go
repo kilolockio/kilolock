@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/davesade/kilolock/internal/testdb"
+	"github.com/kilolockio/kilolock/pkg/testdb"
 )
 
 func testStateLifecycleRaw(t *testing.T, serial int64, lineage string) []byte {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/davesade/kilolock/internal/auth"
+	"github.com/kilolockio/kilolock/pkg/auth"
 )
 
 func TestStateByNameWhere(t *testing.T) {

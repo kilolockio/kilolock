@@ -1,4 +1,4 @@
-module github.com/davesade/kilolock
+module github.com/kilolockio/kilolock
 
 go 1.25.0
 

@@ -1,5 +1,5 @@
 package main
 
-import "github.com/davesade/kilolock/pkg/portalui"
+import "github.com/kilolockio/kilolock/pkg/portalui"
 
 var portalUI = portalui.HTML

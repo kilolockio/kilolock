@@ -12,8 +12,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/davesade/kilolock/internal/provider"
-	"github.com/davesade/kilolock/pkg/store"
+	"github.com/kilolockio/kilolock/internal/provider"
+	"github.com/kilolockio/kilolock/pkg/store"
 )
 
 // runProvider dispatches `kl provider <action> ...`.

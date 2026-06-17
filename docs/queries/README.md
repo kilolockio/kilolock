@@ -47,5 +47,5 @@ sed 's/PLACEHOLDER/aws_vpc.main/' docs/queries/blast_radius.sql \
   `r.create_serial <= S AND (r.delete_serial IS NULL OR r.delete_serial > S)`
   predicate, or join `state_versions` to compute S.
 - The schema these queries target is defined in
-  [`internal/migrate/migrations/`](../../internal/migrate/migrations/)
+  [`pkg/migrate/migrations/`](../../pkg/migrate/migrations/)
   and rationalized in [`docs/schema.md`](../schema.md).

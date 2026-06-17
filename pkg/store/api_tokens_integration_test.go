@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/davesade/kilolock/internal/auth"
-	"github.com/davesade/kilolock/internal/testdb"
+	"github.com/kilolockio/kilolock/pkg/auth"
+	"github.com/kilolockio/kilolock/pkg/testdb"
 )
 
 func TestAPIToken_MultiTenantIsolation(t *testing.T) {
