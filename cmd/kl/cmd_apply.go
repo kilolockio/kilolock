@@ -72,7 +72,7 @@ func runApply(args []string) int {
 		strictCoex   = fs.Bool("strict-coexistence", false, "Fail if vanilla Terraform whole-state locks are active on the state instead of only warning.")
 	)
 	files := &fileFlag{}
-	fs.Var(files, "file", "Scope apply to resources declared in this file (repeatable).")
+	registerFlagValueAlias(fs, files, "file", "f", "Scope apply to resources declared in this file (repeatable).")
 	targets := &targetFlag{}
 	fs.Var(targets, "target", "Targeted apply address (repeatable).")
 
@@ -582,7 +582,7 @@ Flags:
   --plan-spec=PATH      Path to a kl plan spec file produced
                         by ` + "`kl plan`" + `. When omitted,
                         apply builds a fresh spec implicitly.
-  --file=PATH           Build a scoped spec from selected file(s) and
+  --file=PATH, -f PATH  Build a scoped spec from selected file(s) and
                         apply it immediately (repeatable). Convenience
                         shortcut for the ADR-0014 flow.
   --target=ADDR         Build a targeted spec from selected address(es)

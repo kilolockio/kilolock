@@ -19,6 +19,7 @@ Use this before the first public push or first tagged release of `kilolock`.
 - [ ] `docker-compose -f docker-compose.prodlike.yml up --build -d`
 - [ ] `docker-compose -f docker-compose.prodlike.yml exec klc klc migrate`
 - [ ] `docker-compose -f docker-compose.prodlike.yml exec klc klc init --tenant self-hosted --tenant-name "Self Hosted" --token-name operator-bootstrap`
+- [ ] `docs/runbooks/self-hosted-bootstrap.md` matches the shipped self-hosted bootstrap flow
 
 ## Product sanity
 

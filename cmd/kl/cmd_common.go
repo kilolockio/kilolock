@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log/slog"
 	"os"
@@ -77,4 +78,14 @@ const resourceQueryTimeout = 2 * time.Minute
 // this is a one-line redirect.
 func cliContext() context.Context {
 	return auth.WithPrincipal(context.Background(), auth.CLIPrincipal())
+}
+
+func registerStringFlagAlias(fs *flag.FlagSet, target *string, long, short, value, usage string) {
+	fs.StringVar(target, long, value, usage)
+	fs.StringVar(target, short, value, "alias for --"+long)
+}
+
+func registerFlagValueAlias(fs *flag.FlagSet, value flag.Value, long, short, usage string) {
+	fs.Var(value, long, usage)
+	fs.Var(value, short, "alias for --"+long)
 }

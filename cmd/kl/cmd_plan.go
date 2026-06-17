@@ -129,7 +129,7 @@ Optional positional:
                           Defaults to the current working directory.
 
 Flags:
-  --out PATH              Where to write the plan spec. Defaults to
+  --out PATH, -o PATH     Where to write the plan spec. Defaults to
                           <config-dir>/kl-plan.json.
                           Use - for stdout.
   --terraform-bin PATH    terraform binary path. Default: "terraform" on $PATH.
@@ -153,7 +153,7 @@ Flags:
                           --var values are still pinned. The apply will
                           then rely on the same env / tfvars sources being
                           present at apply time.
-  --file PATH             Scope the plan/apply write ownership to resources
+  --file PATH, -f PATH    Scope the plan/apply write ownership to resources
                           declared in PATH. Repeatable. Path is resolved
                           relative to [config-dir].
   --target ADDR           Terraform target address (repeatable). In v1 this
@@ -188,7 +188,7 @@ func runPlan(args []string) int {
 	fs.SetOutput(io.Discard) // we render usage ourselves on parse error
 
 	var (
-		out          = fs.String("out", "", "Output path for the plan spec (default: <config-dir>/kl-plan.json, - for stdout).")
+		out          string
 		terraformBin = fs.String("terraform-bin", "", `terraform binary path (default "terraform" on $PATH).`)
 		iacVersion   = fs.String("iac-version", "", "Desired IaC CLI version (used with --terraform-bin / KL_IAC_BIN).")
 		noLock       = fs.Bool("no-lock", false, "Pass -lock=false to terraform plan.")
@@ -196,8 +196,9 @@ func runPlan(args []string) int {
 		noPinVars    = fs.Bool("no-pin-vars", false, "Don't pin the effective TF input-variable set (TF_VAR_*, tfvars) into the spec; only explicit --var overrides are pinned.")
 		timeout      = fs.Duration("timeout", planTimeoutDefault, "Maximum wall time for plan+show.")
 	)
+	registerStringFlagAlias(fs, &out, "out", "o", "", "Output path for the plan spec (default: <config-dir>/kl-plan.json, - for stdout).")
 	files := &fileFlag{}
-	fs.Var(files, "file", "Scope to resources declared in this file (repeatable).")
+	registerFlagValueAlias(fs, files, "file", "f", "Scope to resources declared in this file (repeatable).")
 	targets := &targetFlag{}
 	fs.Var(targets, "target", "Terraform target address (repeatable).")
 	vars := &varFlag{}
@@ -237,7 +238,7 @@ func runPlan(args []string) int {
 		return 2
 	}
 
-	outPath, err := resolvePlanOutPath(*out, absConfigDir)
+	outPath, err := resolvePlanOutPath(out, absConfigDir)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kl plan:", err)
 		return 2
