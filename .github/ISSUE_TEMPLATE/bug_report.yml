@@ -1,0 +1,53 @@
+name: Bug report
+description: Report a defect in the OSS runtime, CLI, docs, or local self-host flow.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. Please include enough detail for us to reproduce the issue.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Exact commands, Terraform/OpenTofu config, and sequence of actions.
+      placeholder: |
+        1. Run `docker compose up --build -d`
+        2. Configure backend `http`
+        3. Run `terraform apply`
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: CLI/runtime versions, OS, Terraform/OpenTofu version, and deployment mode.
+      placeholder: |
+        - kl version:
+        - kld version:
+        - klc version:
+        - OS:
+        - Terraform/OpenTofu:
+        - compose or local binary:
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output
+      description: Paste error output, logs, or screenshots if helpful.
+      render: shell
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional context
+      description: Anything else that may help us diagnose the issue.

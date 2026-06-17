@@ -1,0 +1,50 @@
+# Default local OSS stack: single Postgres + open kl API.
+#
+# Usage:
+#   docker-compose up --build
+#
+# Health:
+#   curl -s http://localhost:8080/healthz
+#
+# Example state call (no auth):
+#   curl -s http://localhost:8080/states/example
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kl
+      POSTGRES_PASSWORD: kl
+      POSTGRES_DB: kl
+    ports:
+      - "${KL_META_PORT:-5432}:5432"
+    volumes:
+      - kl-quick-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kl -d kl"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  kl:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        KL_GO_TAGS: ${KL_GO_TAGS:-}
+    restart: unless-stopped
+    ports:
+      - "${KL_API_PORT:-8080}:8080"
+    environment:
+      KL_DATABASE_URL: postgres://kl:kl@postgres:5432/kl?sslmode=disable
+      KL_AUTH_MODE: open
+      KL_LISTEN_ADDR: :8080
+      KL_LOG_LEVEL: ${KL_LOG_LEVEL:-info}
+      KL_LOG_FORMAT: ${KL_LOG_FORMAT:-text}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  kl-quick-pgdata:

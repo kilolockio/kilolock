@@ -1,0 +1,158 @@
+# Local stack: Postgres + kld serve (migrations + auth bootstrap).
+#
+#   cp .env.example .env
+#   docker-compose -f docker-compose.prodlike.yml up --build
+#
+# Health (no auth):
+#   curl -s http://localhost:8080/healthz
+#
+# State API (tenant slug + token — matches Terraform http backend):
+#   curl -s -u "local:dev-local-token-change-me" http://localhost:8080/states/example
+#
+# Create another customer manually:
+#   docker compose exec kl kl admin tenant create --slug acme --name "Acme"
+#   docker compose exec kl kl admin token create --tenant acme --name ci
+#
+# Multi-instance smoke test:
+#   docker compose exec kl kl admin environment create --tenant local --slug prod --instance premium --provision
+#   docker compose exec kl kl admin environment list --tenant local
+
+services:
+  postgres-meta:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kl
+      POSTGRES_PASSWORD: kl
+      POSTGRES_DB: kl
+    ports:
+      - "${KL_META_PORT:-5432}:5432"
+    volumes:
+      - kl-pgdata-meta:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U kl -d kl" ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  postgres-shared:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kl
+      POSTGRES_PASSWORD: kl
+      POSTGRES_DB: postgres
+    ports:
+      - "${KL_SHARED_PORT:-5433}:5432"
+    volumes:
+      - kl-pgdata-shared:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U kl -d postgres" ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  postgres-premium:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kl
+      POSTGRES_PASSWORD: kl
+      POSTGRES_DB: postgres
+    ports:
+      - "${KL_PREMIUM_PORT:-5434}:5432"
+    volumes:
+      - kl-pgdata-premium:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U kl -d postgres" ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  kl:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        KL_GO_TAGS: ${KL_GO_TAGS:-}
+    restart: unless-stopped
+    ports:
+      - "${KL_API_PORT:-8080}:8080"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      KL_DATABASE_URL: ${KL_DATABASE_URL:-postgres://kl:kl@postgres-meta:5432/kl?sslmode=disable}
+      KL_CONTROL_PLANE_DATABASE_URL: ${KL_CONTROL_PLANE_DATABASE_URL:-postgres://kl:kl@postgres-meta:5432/kl?sslmode=disable}
+      KL_DATA_PLANE_DATABASE_URL: ${KL_DATA_PLANE_DATABASE_URL:-postgres://kl:kl@postgres-shared:5432/postgres?sslmode=disable}
+      KL_DATA_PLANE_ADMIN_URL: ${KL_DATA_PLANE_ADMIN_URL:-postgres://kl:kl@postgres-shared:5432/postgres?sslmode=disable}
+      KL_DATA_PLANE_DSN_SHARED: ${KL_DATA_PLANE_DSN_SHARED:-postgres://kl:kl@postgres-shared:5432/postgres?sslmode=disable}
+      KL_DATA_PLANE_ADMIN_DSN_SHARED: ${KL_DATA_PLANE_ADMIN_DSN_SHARED:-postgres://kl:kl@postgres-shared:5432/postgres?sslmode=disable}
+      KL_DATA_PLANE_DSN_PREMIUM: ${KL_DATA_PLANE_DSN_PREMIUM:-postgres://kl:kl@postgres-premium:5432/postgres?sslmode=disable}
+      KL_DATA_PLANE_ADMIN_DSN_PREMIUM: ${KL_DATA_PLANE_ADMIN_DSN_PREMIUM:-postgres://kl:kl@postgres-premium:5432/postgres?sslmode=disable}
+      KL_AUTH_MODE: ${KL_AUTH_MODE:-database}
+      KL_BOOTSTRAP_TENANT_SLUG: ' ' # ${KL_BOOTSTRAP_TENANT_SLUG:-local}
+      KL_BOOTSTRAP_TENANT_NAME: ' ' # ${KL_BOOTSTRAP_TENANT_NAME:-Local development}
+      KL_BOOTSTRAP_TOKEN_NAME: ' ' # ${KL_BOOTSTRAP_TOKEN_NAME:-bootstrap}
+      KL_BOOTSTRAP_TOKEN: ' ' # ${KL_BOOTSTRAP_TOKEN:-dev-local-token-change-me}
+      KL_LISTEN_ADDR: ${KL_LISTEN_ADDR:-:8080}
+      KL_LOG_LEVEL: ${KL_LOG_LEVEL:-info}
+      KL_LOG_FORMAT: ${KL_LOG_FORMAT:-text}
+      KL_INIT_MODE: prod # ${KL_INIT_MODE:-dev}
+      KL_PROD_TLS_REQUIRED: false
+      KL_AUTO_DEFAULT_ENV: false
+      # KL_TLS_MODE: required
+      # KL_TLS_CERT_FILE: none
+      # KL_TLS_KEY_FILE: none
+    depends_on:
+      postgres-meta:
+        condition: service_healthy
+      postgres-shared:
+        condition: service_healthy
+      postgres-premium:
+        condition: service_healthy
+
+  klc:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        KL_GO_TAGS: ${KL_GO_TAGS:-}
+    restart: unless-stopped
+    entrypoint: [ "/usr/local/bin/klc" ]
+    ports:
+      - "${KL_CONTROL_PORT:-8090}:8090"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      KL_DATABASE_URL: ${KL_DATABASE_URL:-postgres://kl:kl@postgres-meta:5432/kl?sslmode=disable}
+      KL_CONTROL_PLANE_DATABASE_URL: ${KL_CONTROL_PLANE_DATABASE_URL:-postgres://kl:kl@postgres-meta:5432/kl?sslmode=disable}
+      KL_DATA_PLANE_DATABASE_URL: ${KL_DATA_PLANE_DATABASE_URL:-postgres://kl:kl@postgres-shared:5432/postgres?sslmode=disable}
+      KL_DATA_PLANE_ADMIN_URL: ${KL_DATA_PLANE_ADMIN_URL:-postgres://kl:kl@postgres-shared:5432/postgres?sslmode=disable}
+      KL_DATA_PLANE_DSN_SHARED: ${KL_DATA_PLANE_DSN_SHARED:-postgres://kl:kl@postgres-shared:5432/postgres?sslmode=disable}
+      KL_DATA_PLANE_ADMIN_DSN_SHARED: ${KL_DATA_PLANE_ADMIN_DSN_SHARED:-postgres://kl:kl@postgres-shared:5432/postgres?sslmode=disable}
+      KL_DATA_PLANE_DSN_PREMIUM: ${KL_DATA_PLANE_DSN_PREMIUM:-postgres://kl:kl@postgres-premium:5432/postgres?sslmode=disable}
+      KL_DATA_PLANE_ADMIN_DSN_PREMIUM: ${KL_DATA_PLANE_ADMIN_DSN_PREMIUM:-postgres://kl:kl@postgres-premium:5432/postgres?sslmode=disable}
+      KL_CONTROL_LISTEN_ADDR: :8090
+      KL_CONTROL_TOKEN: ${KL_CONTROL_TOKEN:-local-control-token}
+      KL_CONTROL_PUBLIC_API: ${KL_CONTROL_PUBLIC_API:-}
+      KL_LOG_LEVEL: ${KL_LOG_LEVEL:-info}
+      KL_LOG_FORMAT: ${KL_LOG_FORMAT:-text}
+      KL_INIT_MODE: prod # ${KL_INIT_MODE:-dev}
+      KL_PROD_TLS_REQUIRED: false
+      # KL_TLS_MODE: required
+      # KL_TLS_CERT_FILE: none
+      # KL_TLS_KEY_FILE: none
+    depends_on:
+      postgres-meta:
+        condition: service_healthy
+      postgres-shared:
+        condition: service_healthy
+      postgres-premium:
+        condition: service_healthy
+
+volumes:
+  kl-pgdata-meta:
+  kl-pgdata-shared:
+  kl-pgdata-premium:

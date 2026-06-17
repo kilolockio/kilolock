@@ -1,0 +1,26 @@
+# Go build outputs
+bin/
+
+# Local env/config overrides
+.env
+.env.*
+!.env.example
+
+# Terraform/OpenTofu local artifacts
+**/.terraform/
+**/.terraform/*
+!.terraform.lock.hcl
+*.tfplan
+*.tfstate
+*.tfstate.*
+errored.tfstate
+
+# Kilolock local runtime artifacts
+**/.kl/
+**/.infragraph/
+bin/infragraph
+bin/infragraphd
+*.log
+
+# OS/editor noise
+.DS_Store

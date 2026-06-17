@@ -1,0 +1,159 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [[ -n "$unformatted" ]]; then
+            echo "::error::the following files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go test
+        run: go test -race -count=1 ./...
+
+  integration:
+    name: integration
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: kl
+          POSTGRES_PASSWORD: kl
+          POSTGRES_DB: kl
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kl"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      KL_DATABASE_URL: postgres://kl:kl@localhost:5432/kl?sslmode=disable
+      TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.terraform-plugin-cache
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+
+      - name: Cache provider plugins
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.TF_PLUGIN_CACHE_DIR }}
+          key: tf-providers-integration-${{ hashFiles('internal/provider/launch_integration_test.go') }}
+          restore-keys: |
+            tf-providers-integration-
+
+      - name: Ensure plugin cache dir exists
+        run: mkdir -p "$TF_PLUGIN_CACHE_DIR"
+
+      - name: go test (integration)
+        run: go test -p 1 -tags=integration -race -count=1 ./...
+
+  smoke:
+    name: smoke (${{ matrix.tf.label }})
+    runs-on: ubuntu-latest
+    needs: [unit]
+    strategy:
+      fail-fast: false
+      matrix:
+        tf:
+          - { label: terraform-1.9, kind: terraform, version: 1.9.8 }
+          - { label: tofu-latest, kind: tofu, version: latest }
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: kl
+          POSTGRES_PASSWORD: kl
+          POSTGRES_DB: kl
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kl"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      KL_DATABASE_URL: postgres://kl:kl@localhost:5432/kl?sslmode=disable
+      KL_USE_EXISTING_DB: "1"
+      TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.terraform-plugin-cache
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Terraform
+        if: matrix.tf.kind == 'terraform'
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ matrix.tf.version }}
+          terraform_wrapper: false
+
+      - name: Set up OpenTofu
+        if: matrix.tf.kind == 'tofu'
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: ${{ matrix.tf.version }}
+          tofu_wrapper: false
+
+      - name: Cache provider plugins
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.TF_PLUGIN_CACHE_DIR }}
+          key: tf-providers-${{ matrix.tf.label }}-${{ hashFiles('testdata/smoke/**/*.tf') }}
+          restore-keys: |
+            tf-providers-${{ matrix.tf.label }}-
+
+      - name: Ensure plugin cache dir exists
+        run: mkdir -p "$TF_PLUGIN_CACHE_DIR"
+
+      - name: Run smoke
+        env:
+          TF_BIN: ${{ matrix.tf.kind }}
+        run: ./scripts/smoke.sh

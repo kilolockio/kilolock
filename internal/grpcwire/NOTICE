@@ -1,0 +1,65 @@
+Kilolock — vendored Terraform Plugin RPC protocol bindings
+=============================================================
+
+Purpose
+-------
+
+Kilolock's v1 refresh path speaks the Terraform Plugin RPC protocol
+directly to provider binaries (see ADR 0005). The generated Go bindings
+for that protocol live inside terraform-plugin-go's `internal/`
+packages, which Go's package visibility rules forbid importing from
+outside that module. This directory holds a copy.
+
+Third-party content
+-------------------
+
+The following files are vendored unmodified from
+terraform-plugin-go v0.31.0:
+
+    tfplugin5/tfplugin5.proto
+    tfplugin5/tfplugin5.pb.go
+    tfplugin5/tfplugin5_grpc.pb.go
+    tfplugin6/tfplugin6.proto
+    tfplugin6/tfplugin6.pb.go
+    tfplugin6/tfplugin6_grpc.pb.go
+
+These files are licensed under the Mozilla Public License version 2.0
+(MPL-2.0), as indicated by the SPDX-License-Identifier header in each
+file. The original copyright is held by IBM Corp. (the successor to
+HashiCorp's terraform-plugin-go project). They are reproduced here
+unmodified, with their license headers preserved.
+
+Original source:
+    https://github.com/hashicorp/terraform-plugin-go/tree/v0.31.0/tfprotov5/internal/tfplugin5
+    https://github.com/hashicorp/terraform-plugin-go/tree/v0.31.0/tfprotov6/internal/tfplugin6
+
+MPL-2.0 license text:
+    https://www.mozilla.org/en-US/MPL/2.0/
+
+License interaction with Kilolock
+-----------------------------------
+
+Kilolock itself is licensed under Apache-2.0 (see ../../LICENSE).
+Apache-2.0 and MPL-2.0 are compatible at the file level: each vendored
+file remains under MPL-2.0; Kilolock's own code (everything outside
+this directory) is Apache-2.0. Distributing Kilolock distributes
+these MPL-2.0 files; that distribution complies with MPL-2.0 because
+the files retain their license headers and are not modified.
+
+Maintenance
+-----------
+
+The protocol files are regenerated upstream from .proto sources using
+protoc + protoc-gen-go + protoc-gen-go-grpc. We do not regenerate them
+locally; we copy the generated artifacts from a tagged release of
+terraform-plugin-go. To bump:
+
+  1. Pick a new terraform-plugin-go tag (e.g. v0.32.0).
+  2. Re-download all six files from that tag.
+  3. Update the version string in this NOTICE.
+  4. Run `go test -tags=integration ./internal/provider/...` against
+     real provider binaries to confirm the protocol surface still works.
+
+We intentionally do not run protoc ourselves; doing so would require
+toolchain version-pinning and add no value over taking the official
+generated artifacts.

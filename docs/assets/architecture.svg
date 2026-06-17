@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="760" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0B1730"/>
+      <stop offset="1" stop-color="#09111F"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#5CC8FF"/>
+      <stop offset="1" stop-color="#8B7CFF"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#000000" flood-opacity="0.28"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#7DD6FF"/>
+    </marker>
+    <style>
+      .title { font: 700 18px Inter, Arial, sans-serif; fill: #E8EEF8; }
+      .body { font: 400 13px Inter, Arial, sans-serif; fill: #9BB0CC; }
+      .label { font: 700 14px Inter, Arial, sans-serif; fill: #06111D; }
+      .small { font: 600 12px Inter, Arial, sans-serif; fill: #C3D1E6; }
+      .tiny { font: 400 11px Inter, Arial, sans-serif; fill: #93A7C3; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="760" rx="28" fill="url(#bg)"/>
+  <text x="70" y="72" class="title" style="font-size:32px;">Kilolock OSS architecture</text>
+  <text x="70" y="102" class="body" style="font-size:18px;">Client CLI talks only to APIs. Runtime and control services own the databases.</text>
+
+  <rect x="70" y="150" width="250" height="145" rx="22" fill="#13233A" stroke="#2B4768" filter="url(#shadow)"/>
+  <text x="100" y="188" class="title">Engineer / CI</text>
+  <text x="100" y="214" class="body">Terraform or OpenTofu</text>
+  <text x="100" y="236" class="body">`backend "http"`</text>
+  <text x="100" y="268" class="small">Same HCL • same providers</text>
+
+  <rect x="70" y="350" width="250" height="165" rx="22" fill="#13233A" stroke="#2B4768" filter="url(#shadow)"/>
+  <text x="100" y="388" class="title">`kl` CLI</text>
+  <text x="100" y="414" class="body">Query • refresh • apply</text>
+  <text x="100" y="436" class="body">resource repair • operator flows</text>
+  <rect x="100" y="458" width="190" height="34" rx="17" fill="url(#accent)"/>
+  <text x="123" y="480" class="label">No direct DB access</text>
+
+  <rect x="430" y="125" width="300" height="210" rx="24" fill="#102A23" stroke="#2F6554" filter="url(#shadow)"/>
+  <text x="462" y="165" class="title">`kld`</text>
+  <text x="462" y="191" class="body">Runtime / HTTP backend</text>
+  <text x="462" y="217" class="body">state writes • refresh orchestration</text>
+  <text x="462" y="239" class="body">parallel reservations • query surfaces</text>
+  <text x="462" y="271" class="small">Talks directly to state databases</text>
+  <rect x="462" y="288" width="205" height="30" rx="15" fill="#173C32" stroke="#3B7E68"/>
+  <text x="486" y="308" class="small">`terraform` / `tofu` stay first-class</text>
+
+  <rect x="430" y="385" width="300" height="180" rx="24" fill="#261F3F" stroke="#55479A" filter="url(#shadow)"/>
+  <text x="462" y="425" class="title">`klc`</text>
+  <text x="462" y="451" class="body">Operator and control-plane API</text>
+  <text x="462" y="477" class="body">lifecycle • entitlements • routing</text>
+  <text x="462" y="503" class="body">bootstrap • admin flows</text>
+  <text x="462" y="535" class="small">Talks directly to metadata DB</text>
+
+  <rect x="840" y="125" width="280" height="200" rx="24" fill="#13233A" stroke="#2B4768" filter="url(#shadow)"/>
+  <text x="872" y="165" class="title">State data plane</text>
+  <text x="872" y="193" class="body">PostgreSQL state storage</text>
+  <text x="872" y="219" class="body">normalized resources</text>
+  <text x="872" y="241" class="body">resource history • reservations</text>
+  <text x="872" y="263" class="body">query and repair backing data</text>
+
+  <rect x="840" y="385" width="280" height="160" rx="24" fill="#13233A" stroke="#2B4768" filter="url(#shadow)"/>
+  <text x="872" y="425" class="title">Metadata / control plane</text>
+  <text x="872" y="453" class="body">tenants • environments</text>
+  <text x="872" y="475" class="body">routing • entitlements</text>
+  <text x="872" y="497" class="body">operator bootstrap + admin state</text>
+
+  <path d="M320 220 C 370 220, 380 220, 430 220" stroke="#7DD6FF" stroke-width="4" marker-end="url(#arrow)"/>
+  <path d="M320 400 C 370 355, 385 305, 430 255" stroke="#7DD6FF" stroke-width="4" marker-end="url(#arrow)"/>
+  <path d="M320 455 C 370 455, 380 455, 430 455" stroke="#7DD6FF" stroke-width="4" marker-end="url(#arrow)"/>
+  <path d="M730 220 C 775 220, 790 220, 840 220" stroke="#7DD6FF" stroke-width="4" marker-end="url(#arrow)"/>
+  <path d="M730 470 C 775 470, 790 470, 840 470" stroke="#7DD6FF" stroke-width="4" marker-end="url(#arrow)"/>
+
+  <path d="M580 335 L580 385" stroke="#8D83FF" stroke-width="4" stroke-dasharray="8 10" marker-end="url(#arrow)"/>
+  <text x="600" y="366" class="tiny">runtime + control APIs</text>
+
+  <rect x="70" y="600" width="1050" height="95" rx="22" fill="#0F1B2D" stroke="#233B59"/>
+  <text x="102" y="637" class="title">Boundary summary</text>
+  <text x="102" y="665" class="body">`kl` is the clean client binary for engineers and CI, and it can call both runtime and control APIs. `kld` and `klc` are the server-side binaries that own database connectivity.</text>
+</svg>

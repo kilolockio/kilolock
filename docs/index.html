@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kilolock — Scale engineers, not state-file locks</title>
+  <meta name="description"
+    content="Kilolock is a self-hosted graph-native control plane for Terraform and OpenTofu, built to let engineers work in parallel on large shared state." />
+  <link rel="stylesheet" href="./assets/styles.css" />
+</head>
+
+<body>
+  <header class="hero">
+    <nav class="nav">
+      <div class="brand">Kilolock</div>
+      <div class="nav-links">
+        <a href="https://github.com/davesade/kilolock">README</a>
+        <a href="./runbooks/execution-plane-audit-checklist.md">Runbooks</a>
+        <a href="./adr/0007-parallel-apply.md">ADR 0007</a>
+        <a href="https://github.com/davesade/kilolock">GitHub</a>
+      </div>
+    </nav>
+
+    <div class="hero-copy">
+      <p class="eyebrow">Self-hosted Terraform/OpenTofu state engine</p>
+      <h1>Scale engineers, not state-file locks.</h1>
+      <p class="lede">
+        Kilolock replaces the flat <code>.tfstate</code> blob with a normalized
+        PostgreSQL graph so teams can query state, inspect drift, repair a single
+        resource, and coordinate parallel work on large shared state with much
+        better visibility than a whole-workspace lock.
+      </p>
+      <div class="cta-row">
+        <a class="button primary" href="https://github.com/davesade/kilolock">Read the quickstart</a>
+        <a class="button secondary" href="./runbooks/resource-level-emergency-repair.md">See repair workflows</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel three-up">
+      <article>
+        <h2>Main value</h2>
+        <p>
+          The headline benefit is not “SQL is neat.” It is letting more engineers
+          work safely on the same large state without forcing everything through a
+          single coarse lock.
+        </p>
+      </article>
+      <article>
+        <h2>Drop-in path</h2>
+        <p>
+          Existing Terraform and OpenTofu workflows still talk to an HTTP backend.
+          Same HCL, same providers, same CLI habits — different engine under the
+          state.
+        </p>
+      </article>
+      <article>
+        <h2>Self-hosted</h2>
+        <p>
+          This repository is the OSS core: <code>kl</code>,
+          <code>kld</code>, <code>klc</code>, local compose,
+          query/repair flows, and operator APIs.
+        </p>
+      </article>
+    </section>
+
+    <section class="panel">
+      <h2>Large state is not always the mistake</h2>
+      <p>
+        Sometimes the infrastructure really is tightly coupled. Forcing it into many smaller Terraform states can create
+        a distributed monolith where the dependency graph still exists, but now it is harder to reason about and harder
+        to change safely.
+      </p>
+      <p>
+        In those cases, a large shared state can be the honest representation of the system. Kilolock is built for
+        that reality: better collaboration on one large state, better visibility, and better repair workflows when
+        something goes wrong.
+      </p>
+    </section>
+
+    <section class="panel">
+      <h2>Why teams hit a wall with large state</h2>
+      <div class="compare-grid">
+        <div class="card bad">
+          <h3>Flat state file</h3>
+          <ul>
+            <li>Whole-workspace lock for unrelated changes</li>
+            <li>Slow refresh and plan loops as state grows</li>
+            <li>Weak answers to “what changed?” or “what drifted?”</li>
+            <li>Emergency repair usually means blunt whole-state recovery</li>
+          </ul>
+        </div>
+        <div class="card good">
+          <h3>Kilolock</h3>
+          <ul>
+            <li>Normalized resource graph in PostgreSQL</li>
+            <li>Reservation-aware orchestration for scoped work</li>
+            <li>Queryable resource history and drift</li>
+            <li>Resource-level inspection and repair workflows</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Architecture at a glance</h2>
+      <p class="note">Client workflows stay API-only. Runtime and control services own the private databases.</p>
+      <img class="diagram" src="./assets/architecture.svg"
+        alt="Architecture diagram showing engineers and the kl CLI calling kld and klc APIs, which in turn talk to state and metadata PostgreSQL databases." />
+    </section>
+
+    <section class="panel">
+      <h2>Why parallel apply matters</h2>
+      <p class="note">The technical backend work matters because it removes a people bottleneck: more engineers can work
+        on the same large state without queueing behind one lock.</p>
+      <img class="diagram" src="./assets/parallel-apply-compare.svg"
+        alt="Comparison diagram showing vanilla Terraform serializing disjoint work through a whole-state lock, while Kilolock allows disjoint resource reservations to proceed in parallel." />
+    </section>
+
+    <section class="panel">
+      <h2>What you get today</h2>
+      <div class="feature-grid">
+        <article class="card">
+          <h3>Queryable state</h3>
+          <p>Run backend-native queries over normalized resources, dependencies, outputs, and drift.</p>
+        </article>
+        <article class="card">
+          <h3>Provider-aware refresh</h3>
+          <p>Refresh state out of band and inspect drift without paying full plan refresh every time.</p>
+        </article>
+        <article class="card">
+          <h3>Scoped/orchestrated apply</h3>
+          <p>Use file- and target-scoped workflows with reservation-aware orchestration.</p>
+        </article>
+        <article class="card">
+          <h3>Resource repair</h3>
+          <p>Preview history and repair a single resource’s state bookkeeping without blunt whole-state rollback.</p>
+        </article>
+        <article class="card">
+          <h3>Control-plane APIs</h3>
+          <p>Run self-hosted operator workflows for lifecycle, routing, entitlements, and control operations.</p>
+        </article>
+        <article class="card">
+          <h3>Parallel-apply foundations</h3>
+          <p>The concurrency story is real: disjoint changes on large shared state are the center of the design.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="panel code-panel">
+      <h2>Quickstart</h2>
+      <pre><code>docker-compose up --build -d</code></pre>
+      <p class="note">
+        Then point Terraform’s <code>backend "http"</code> at
+        <code>http://localhost:8080/states/&lt;workspace&gt;/&lt;environment&gt;/&lt;state&gt;</code>.
+      </p>
+    </section>
+
+    <section class="panel two-up">
+      <article>
+        <h2>Why this matters operationally</h2>
+        <ul>
+          <li>parallel collaboration on one honest shared state</li>
+          <li>resource-level query, history, repair, and rollback</li>
+          <li>less pressure to invent artificial state splits just to escape locking</li>
+        </ul>
+      </article>
+      <article>
+        <h2>Good fit</h2>
+        <ul>
+          <li>Large shared states with multiple engineers</li>
+          <li>Teams that need better visibility into drift and blast radius</li>
+          <li>Operators who want self-hosted control over state data</li>
+        </ul>
+      </article>
+      <article>
+        <h2>Out of scope here</h2>
+        <ul>
+          <li>Hosted customer portal UX</li>
+          <li>Billing/signup glue and managed-service packaging</li>
+          <li>Cloud-specific internal deployment repo content</li>
+        </ul>
+      </article>
+    </section>
+
+    <section class="panel links">
+      <h2>Go deeper</h2>
+      <div class="link-grid">
+        <a class="link-card" href="https://github.com/davesade/kilolock">
+          <strong>README</strong>
+          <span>Quickstart, roadmap, examples, binaries</span>
+        </a>
+        <a class="link-card" href="./adr/0007-parallel-apply.md">
+          <strong>ADR 0007</strong>
+          <span>Parallel apply design and reservation model</span>
+        </a>
+        <a class="link-card" href="./runbooks/execution-plane-audit-checklist.md">
+          <strong>Execution audit</strong>
+          <span>Step-by-step backend semantics validation</span>
+        </a>
+        <a class="link-card" href="./runbooks/resource-level-emergency-repair.md">
+          <strong>Resource repair</strong>
+          <span>Query, history, preview, and rollback workflows</span>
+        </a>
+      </div>
+    </section>
+  </main>
+</body>
+
+</html>
