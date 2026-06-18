@@ -63,13 +63,19 @@ const (
 // StoreResolver returns the data-plane store for a request context.
 type StoreResolver func(context.Context) (*store.Store, error)
 
+// AvailabilityCheck reports whether state/admin routes should currently serve
+// requests. It is intended for lightweight readiness gates such as "system init
+// completed" without affecting unauthenticated health checks.
+type AvailabilityCheck func(context.Context) (bool, error)
+
 // Server is the HTTP handler implementing the Terraform HTTP backend
 // protocol. Construct one and pass it to http.Server.
 type Server struct {
-	resolveStore  StoreResolver
-	logger        *slog.Logger
-	authenticator auth.Authenticator
-	routingStats  func() map[string]any
+	resolveStore      StoreResolver
+	logger            *slog.Logger
+	authenticator     auth.Authenticator
+	routingStats      func() map[string]any
+	availabilityCheck AvailabilityCheck
 }
 
 // New returns a Server backed by the given store and logger, using
@@ -118,6 +124,14 @@ func (s *Server) WithAuthenticator(a auth.Authenticator) *Server {
 func (s *Server) WithRoutingStatsProvider(fn func() map[string]any) *Server {
 	c := *s
 	c.routingStats = fn
+	return &c
+}
+
+// WithAvailabilityCheck returns a copy configured to gate state/admin routes
+// until fn reports that the service is ready to serve authenticated traffic.
+func (s *Server) WithAvailabilityCheck(fn AvailabilityCheck) *Server {
+	c := *s
+	c.availabilityCheck = fn
 	return &c
 }
 
@@ -1594,6 +1608,19 @@ func parseOptionalInt(raw string, def int) (int, error) {
 // implementation itself, not here.
 func (s *Server) withAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.availabilityCheck != nil {
+			ready, err := s.availabilityCheck(r.Context())
+			if err != nil {
+				s.logger.Error("availability check failed",
+					"path", r.URL.Path, "method", r.Method, "err", err)
+				writeJSONError(w, http.StatusServiceUnavailable, "service unavailable")
+				return
+			}
+			if !ready {
+				writeJSONError(w, http.StatusServiceUnavailable, "system is not initialized")
+				return
+			}
+		}
 		p, err := s.authenticator.Authenticate(r)
 		if err != nil {
 			s.logger.Warn("authentication failed",

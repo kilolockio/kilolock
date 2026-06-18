@@ -215,6 +215,11 @@ func runInitControl(args []string) int {
 	}
 	fmt.Println("klc init complete")
 	fmt.Printf("tenant=%s token_name=%s\n", *tenant, *tokenName)
+	if strings.TrimSpace(*outputFile) != "" {
+		fmt.Printf("token written to %s\n", strings.TrimSpace(*outputFile))
+		fmt.Println("store this file securely and remove it after importing the token into a secret manager.")
+		return 0
+	}
 	fmt.Printf("token=%s\n", secret)
 	fmt.Println("store this token in a secret manager; it is shown only now.")
 	return 0

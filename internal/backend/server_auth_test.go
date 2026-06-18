@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -37,4 +38,20 @@ func TestHandler_StaticTokenAuth(t *testing.T) {
 		}
 	})
 
+	t.Run("state before init returns 503 before auth", func(t *testing.T) {
+		sealed := New(nil, nil).
+			WithAvailabilityCheck(func(_ context.Context) (bool, error) { return false, nil }).
+			WithAuthenticator(auth.NewStaticTokenAuthenticator("test-secret"))
+		req := httptest.NewRequest(http.MethodGet, "/states/x", nil)
+		rec := httptest.NewRecorder()
+		sealed.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+		}
+		var body errResp
+		_ = json.Unmarshal(rec.Body.Bytes(), &body)
+		if body.Error != "system is not initialized" {
+			t.Fatalf("body = %+v", body)
+		}
+	})
 }

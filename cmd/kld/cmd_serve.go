@@ -79,15 +79,6 @@ func runServe(args []string) int {
 			logger.Error("bootstrap env vars are disabled in prod init mode; run `kl operator init` instead")
 			return 1
 		}
-		initSt, err := controlStore.GetSystemInitStatus(startCtx)
-		if err != nil {
-			logger.Error("read system init status", "err", err)
-			return 1
-		}
-		if !initSt.Initialized {
-			logger.Error("metadata backend is not initialized; run `kl operator init`")
-			return 1
-		}
 	default:
 		bootstrapped, err := bootstrapAuthIfConfigured(startCtx, controlStore, cfg, logger)
 		if err != nil {
@@ -126,7 +117,7 @@ func runServe(args []string) int {
 	defer router.Close()
 
 	defaultStore := store.New(dataPool.Pool)
-	handler := backend.New(defaultStore, logger).
+	baseHandler := backend.New(defaultStore, logger).
 		WithStoreResolver(router.StoreFor).
 		WithRoutingStatsProvider(func() map[string]any {
 			st := cache.Stats()
@@ -138,9 +129,26 @@ func runServe(args []string) int {
 				"routing_cache_evicts":     st.Evicts,
 				"routing_instances":        st.Instances,
 			}
-		}).
-		WithAuthenticator(authn).
-		Handler()
+		})
+	if cfg.ResolvedInitMode() == "prod" {
+		baseHandler = baseHandler.
+			WithAvailabilityCheck(func(ctx context.Context) (bool, error) {
+				initSt, err := controlStore.GetSystemInitStatus(ctx)
+				if err != nil {
+					return false, err
+				}
+				return initSt.Initialized, nil
+			})
+		initSt, err := controlStore.GetSystemInitStatus(startCtx)
+		if err != nil {
+			logger.Error("read system init status", "err", err)
+			return 1
+		}
+		if !initSt.Initialized {
+			logger.Warn("metadata backend is not initialized yet; serving healthz only until bootstrap init completes")
+		}
+	}
+	handler := baseHandler.WithAuthenticator(authn).Handler()
 	switch cfg.ResolvedAuthMode() {
 	case "open":
 		logger.Warn("HTTP authentication disabled (open mode) — not for production")
