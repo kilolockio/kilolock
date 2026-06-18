@@ -276,6 +276,20 @@ act on quickly.
 
 ## 7. Quota behavior
 
+Before testing final write rejection, also test the CLI-side preflight path:
+
+- `kl quota remaining`
+- `terraform plan -out=plan.tfplan`
+- `kl quota check --tf-plan plan.tfplan`
+- `kl plan ...`
+
+Expected:
+
+- `kl quota remaining` reports current headroom for state and environment
+- `kl quota check` warns on soft-limit breaches
+- `kl quota check` fails on hard-limit breaches
+- `kl plan` mirrors the same hard-fail / soft-warn behavior when backend discovery works
+
 ### 7A. Exact boundary
 
 Test a state at exactly the hard boundary for the current plan.

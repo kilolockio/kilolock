@@ -245,7 +245,7 @@ func TestEmitPlanSpec_WritesToFile(t *testing.T) {
 	outPath := filepath.Join(dir, "spec.json")
 
 	var stderr bytes.Buffer
-	rc, err := emitPlanSpec(planEmitInput{
+	rc, _, err := emitPlanSpec(planEmitInput{
 		showJSON:    []byte(capturedShowJSON),
 		configDir:   dir,
 		outPath:     outPath,
@@ -278,7 +278,7 @@ func TestEmitPlanSpec_WritesToFile(t *testing.T) {
 
 func TestEmitPlanSpec_WritesToStdout(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	rc, err := emitPlanSpec(planEmitInput{
+	rc, _, err := emitPlanSpec(planEmitInput{
 		showJSON:    []byte(capturedShowJSON),
 		configDir:   "/dummy",
 		outPath:     "-",
@@ -299,7 +299,7 @@ func TestEmitPlanSpec_WritesToStdout(t *testing.T) {
 }
 
 func TestEmitPlanSpec_RejectsInvalidJSON(t *testing.T) {
-	rc, err := emitPlanSpec(planEmitInput{
+	rc, _, err := emitPlanSpec(planEmitInput{
 		showJSON: []byte(`{not json`),
 		outPath:  "-",
 		stdout:   &bytes.Buffer{},
@@ -319,7 +319,7 @@ func TestEmitPlanSpec_FileScopeNarrowsWriteSet(t *testing.T) {
 		t.Fatal(err)
 	}
 	outPath := filepath.Join(dir, "scoped.json")
-	rc, err := emitPlanSpec(planEmitInput{
+	rc, _, err := emitPlanSpec(planEmitInput{
 		showJSON:    []byte(capturedScopedShowJSON),
 		configDir:   dir,
 		scopeFiles:  []string{"slow_a.tf"},
@@ -355,7 +355,7 @@ func TestEmitPlanSpec_FileScopeEmptyWriteSetFails(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "not-owned.tf"), []byte(`resource "null_resource" "x" {}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := emitPlanSpec(planEmitInput{
+	_, _, err := emitPlanSpec(planEmitInput{
 		showJSON:    []byte(capturedScopedShowJSON),
 		configDir:   dir,
 		scopeFiles:  []string{"not-owned.tf"},
@@ -537,7 +537,7 @@ func TestEmitPlanSpec_AutoPinsTerraformObservedVariables(t *testing.T) {
 	tmp := t.TempDir()
 	outPath := filepath.Join(tmp, "spec.json")
 
-	rc, err := emitPlanSpec(planEmitInput{
+	rc, _, err := emitPlanSpec(planEmitInput{
 		showJSON:    []byte(capturedShowJSONWithVars),
 		configDir:   "/tmp/cfg",
 		outPath:     outPath,
@@ -596,7 +596,7 @@ func TestEmitPlanSpec_NoPinVars_SkipsObserved(t *testing.T) {
 	tmp := t.TempDir()
 	outPath := filepath.Join(tmp, "spec.json")
 
-	rc, err := emitPlanSpec(planEmitInput{
+	rc, _, err := emitPlanSpec(planEmitInput{
 		showJSON:    []byte(capturedShowJSONWithVars),
 		configDir:   "/tmp/cfg",
 		outPath:     outPath,
@@ -633,7 +633,7 @@ func TestEmitPlanSpec_PinsExplicitVariables(t *testing.T) {
 	defer os.RemoveAll(tmp)
 	outPath := filepath.Join(tmp, "spec.json")
 
-	rc, err := emitPlanSpec(planEmitInput{
+	rc, _, err := emitPlanSpec(planEmitInput{
 		showJSON:    []byte(capturedShowJSON),
 		configDir:   "/tmp/cfg",
 		outPath:     outPath,

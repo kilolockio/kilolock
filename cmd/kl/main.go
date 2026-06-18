@@ -11,6 +11,7 @@
 //	kl provider <action>  Manage stored provider configurations.
 //	kl refresh <name>     Refresh a state by talking to providers directly.
 //	kl plan <config-dir>  Generate a kl plan spec from a Terraform configuration.
+//	kl quota <sub>        Quota preview / plan admission checks via backend auth.
 //	kl apply              Apply a kl plan spec to a trunk state (v2 parallel apply).
 //	kl history [state]    List the state_versions history of a state (newest first).
 //	kl rollback [state]   Replay a past state_version as a new write (dry-run by default).
@@ -74,6 +75,8 @@ func main() {
 		os.Exit(runRefresh(args))
 	case "plan":
 		os.Exit(runPlan(args))
+	case "quota":
+		os.Exit(runQuota(args))
 	case "apply":
 		os.Exit(runApply(args))
 	case "history":
@@ -109,6 +112,7 @@ Subcommands:
   provider  Manage stored provider configurations (configure/get/list/remove).
   refresh   Refresh a state by talking to providers directly (no Terraform CLI).
   plan      Generate a kl plan spec from a Terraform configuration (v2).
+  quota     Preview quota headroom and check Terraform plans against quota.
   apply     Apply a kl plan spec to a trunk state (v2 parallel apply).
   history   List the state_versions history of a state (newest first).
   rollback  Replay a past state_version, or one historical resource address, as a new write.

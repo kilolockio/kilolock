@@ -236,6 +236,10 @@ func runApply(args []string) int {
 		fmt.Fprintln(os.Stdout, "apply skipped: plan contains no writes")
 		return 0
 	}
+	if err := enforceApplyQuotaPreflight(cliContext(), resolvedStateName, spec, resolvedSpecPath, *workDirFlag); err != nil {
+		fmt.Fprintln(os.Stderr, "kl apply:", err)
+		return 1
+	}
 
 	// Default apply mode is backend-driven terraform apply, so local CLI usage
 	// does not require direct DB access. Every apply mode now starts from a
@@ -928,6 +932,39 @@ func discoverApplyStateName(specPath, workDirFlag string, spec *plan.PlanSpec) s
 		}
 	}
 	return firstNonEmpty(backendState, spec.StateName)
+}
+
+func enforceApplyQuotaPreflight(ctx context.Context, stateName string, spec *plan.PlanSpec, specPath, workDirFlag string) error {
+	if spec == nil || strings.TrimSpace(stateName) == "" {
+		return nil
+	}
+	workDir, err := resolveApplyWorkDir(workDirFlag, specPath, spec)
+	if err != nil {
+		return fmt.Errorf("quota preflight resolve work dir: %w", err)
+	}
+	client, err := newAPIClientFromBackend(workDir)
+	if err != nil {
+		return fmt.Errorf("quota preflight discover backend API client: %w", err)
+	}
+	preview, err := client.checkQuota(ctx, stateName, quotaPlanDeltaFromSummary(spec.PlanSummary))
+	if err != nil {
+		return formatQuotaPreflightError(err)
+	}
+	if quotaPreviewExitCode(os.Stderr, preview, "kl apply") != 0 {
+		return fmt.Errorf("quota hard limit exceeded")
+	}
+	return nil
+}
+
+func formatQuotaPreflightError(err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	if strings.Contains(msg, "401 unauthorized") || strings.Contains(msg, `"error":"unauthenticated"`) {
+		return fmt.Errorf("quota preflight could not authenticate to the backend admin API; make sure the current backend credentials are also valid for Kilolock admin checks (TF_HTTP_USERNAME/TF_HTTP_PASSWORD, KL_USERNAME/KL_PASSWORD, or KL_TOKEN)")
+	}
+	return fmt.Errorf("quota preflight failed: %w", err)
 }
 
 func getRemoteStateStatus(ctx context.Context, client *apiClient, stateName string) (*store.StateStatus, error) {

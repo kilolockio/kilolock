@@ -15,6 +15,39 @@ Customers choose their Terraform/OpenTofu version in their own runtime:
 
 The Kilolock server does not execute customer Terraform plans in normal backend mode; it serves HTTP backend protocol and persists state metadata.
 
+## Quota Enforcement Model
+
+Quota behavior differs depending on which client path the operator uses:
+
+1. Native Terraform/OpenTofu HTTP backend usage:
+   - Reads and writes go through the standard backend protocol.
+   - Hard quota is still enforced by the backend on the final state write.
+   - This means plain Terraform may discover quota failure late, after provider-side infrastructure work already happened.
+2. Kilolock CLI plan-driven usage:
+   - `kl plan` performs a backend quota preflight from the plan's projected managed-resource delta.
+   - `kl quota remaining` shows current headroom.
+   - `kl quota check --tf-plan ...` lets CI or operators evaluate a Terraform plan explicitly before apply.
+   - Hard quota overages fail early.
+   - Soft quota overages warn but still succeed.
+
+Quota admission is based on the **projected final state shape**, not on a
+temporary in-flight peak during provider execution order. In practical terms:
+
+- a plan that deletes `1000` managed resources and creates `100` managed
+  resources is evaluated as a net `-900` change
+- if the resulting final state is within quota, the quota check passes
+- Kilolock does **not** currently reject a plan solely because a
+  create-before-destroy or replacement sequence might temporarily have old and
+  new infrastructure alive at the same time before the final state settles
+
+This applies both to:
+
+- CLI-side preflight (`kl plan`, `kl quota check`)
+- backend write-time hard enforcement on the final stored state
+
+This is why plan admission is documented as a Kilolock CLI guarantee, not a
+generic Terraform HTTP backend guarantee.
+
 ## Support Levels
 
 1. **Supported**:

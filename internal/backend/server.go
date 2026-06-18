@@ -198,6 +198,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/admin/state/rollback/apply", s.withAuth(http.HandlerFunc(s.handleAdminStateRollbackApply)))
 	mux.Handle("/admin/state/resource-rollback/preview", s.withAuth(http.HandlerFunc(s.handleAdminStateResourceRollbackPreview)))
 	mux.Handle("/admin/state/resource-rollback/apply", s.withAuth(http.HandlerFunc(s.handleAdminStateResourceRollbackApply)))
+	mux.Handle("/admin/quota/remaining", s.withAuth(http.HandlerFunc(s.handleAdminQuotaRemaining)))
+	mux.Handle("/admin/quota/check", s.withAuth(http.HandlerFunc(s.handleAdminQuotaCheck)))
 	mux.Handle("/admin/state/write-apply", s.withAuth(http.HandlerFunc(s.handleAdminStateWriteApply)))
 	mux.Handle("/admin/apply-runs/begin", s.withAuth(http.HandlerFunc(s.handleAdminApplyRunBegin)))
 	mux.Handle("/admin/apply-runs/{id}/status", s.withAuth(http.HandlerFunc(s.handleAdminApplyRunStatus)))
@@ -1394,6 +1396,68 @@ func (s *Server) handleAdminStateWriteApply(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleAdminQuotaRemaining(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	stateName := strings.TrimSpace(r.URL.Query().Get("state_name"))
+	if stateName == "" {
+		writeJSONError(w, http.StatusBadRequest, "state name is required")
+		return
+	}
+	st, err := s.dataStore(r.Context())
+	if err != nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "environment unavailable")
+		return
+	}
+	preview, err := st.PreviewStateQuota(r.Context(), stateName, 0)
+	if err != nil {
+		if errors.Is(err, store.ErrTenantNotFound) {
+			writeJSONError(w, http.StatusNotFound, "tenant not found")
+			return
+		}
+		writeJSONError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, preview)
+}
+
+func (s *Server) handleAdminQuotaCheck(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var in struct {
+		StateName            string `json:"state_name"`
+		PlannedResourceDelta int    `json:"planned_resource_delta"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	in.StateName = strings.TrimSpace(in.StateName)
+	if in.StateName == "" {
+		writeJSONError(w, http.StatusBadRequest, "state name is required")
+		return
+	}
+	st, err := s.dataStore(r.Context())
+	if err != nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "environment unavailable")
+		return
+	}
+	preview, err := st.PreviewStateQuota(r.Context(), in.StateName, in.PlannedResourceDelta)
+	if err != nil {
+		if errors.Is(err, store.ErrTenantNotFound) {
+			writeJSONError(w, http.StatusNotFound, "tenant not found")
+			return
+		}
+		writeJSONError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, preview)
 }
 
 func (s *Server) handleAdminApplyRunBegin(w http.ResponseWriter, r *http.Request) {

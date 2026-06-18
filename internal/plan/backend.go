@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -121,13 +122,78 @@ func DiscoverBackend(configDir string) (*BackendInfo, error) {
 		return nil, fmt.Errorf("derive state name from %q: %w", addr, err)
 	}
 
-	return &BackendInfo{
+	bi := &BackendInfo{
 		Type:      "http",
 		Address:   addr,
 		StateName: name,
 		Username:  stringConfig(doc.Backend.Config, "username"),
 		Password:  stringConfig(doc.Backend.Config, "password"),
-	}, nil
+	}
+	if err := populateBackendAuthFallback(configDir, bi); err != nil {
+		return nil, err
+	}
+	return bi, nil
+}
+
+var (
+	httpBackendBlockPattern = regexp.MustCompile(`(?s)backend\s+"http"\s*\{.*?\}`)
+	backendUsernamePattern  = regexp.MustCompile(`(?m)^\s*username\s*=\s*"([^"\n]*)"`)
+	backendPasswordPattern  = regexp.MustCompile(`(?m)^\s*password\s*=\s*"([^"\n]*)"`)
+)
+
+func populateBackendAuthFallback(configDir string, bi *BackendInfo) error {
+	if bi == nil {
+		return nil
+	}
+	if strings.TrimSpace(bi.Username) != "" && strings.TrimSpace(bi.Password) != "" {
+		return nil
+	}
+	user, pass := discoverBackendHTTPAuthFromConfigDir(configDir)
+	if strings.TrimSpace(bi.Username) == "" {
+		bi.Username = user
+	}
+	if strings.TrimSpace(bi.Password) == "" {
+		bi.Password = pass
+	}
+	return nil
+}
+
+func discoverBackendHTTPAuthFromConfigDir(configDir string) (username, password string) {
+	entries, err := os.ReadDir(configDir)
+	if err != nil {
+		return "", ""
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".tf") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(configDir, name))
+		if err != nil {
+			continue
+		}
+		block := httpBackendBlockPattern.Find(raw)
+		if len(block) == 0 {
+			continue
+		}
+		if username == "" {
+			if match := backendUsernamePattern.FindSubmatch(block); len(match) == 2 {
+				username = string(match[1])
+			}
+		}
+		if password == "" {
+			if match := backendPasswordPattern.FindSubmatch(block); len(match) == 2 {
+				password = string(match[1])
+			}
+		}
+		if username != "" && password != "" {
+			return username, password
+		}
+	}
+	return username, password
 }
 
 func stringConfig(m map[string]any, key string) string {

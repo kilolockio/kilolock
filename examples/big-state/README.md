@@ -187,13 +187,37 @@ terraform apply -auto-approve   # uses the default size=50000
 terraform destroy -auto-approve -var=size=50000
 ```
 
+## Quota-aware workflow
+
+When this demo points at a hosted or entitlement-limited deployment, prefer:
+
+```sh
+./bin/kl quota remaining
+terraform plan -out=plan.tfplan
+./bin/kl quota check --tf-plan plan.tfplan
+./bin/kl plan -f slow_a.tf -o slow-a.plan.json
+```
+
+What to expect:
+
+- `kl quota remaining` shows current headroom for the active state and its environment
+- `kl quota check` uses Terraform's own plan output and asks the backend whether the projected resource count still fits
+- `kl plan` performs the same style of quota preflight automatically when it can discover the HTTP backend state
+- soft-limit overages warn but still exit `0`
+- hard-limit overages fail before `kl apply`
+
+This is intentionally stronger than plain `terraform apply` against the HTTP
+backend alone. Plain Terraform can still create infrastructure and only learn
+about quota rejection when the final state write is refused; Kilolock CLI
+preflight exists to catch that earlier.
+
 To point at a different `kld` instance, override at init time:
 
 ```sh
 terraform init -reconfigure \
   -backend-config="address=http://kl.example.internal/states/big-state" \
   -backend-config="lock_address=http://kl.example.internal/states/big-state" \
-  -backend-config="unlock_address=http://kl.example.internal/states/big-state"
+  -backend-config="unlock_address=http://kl.example.internal/state-unlock/big-state"
 ```
 
 ---

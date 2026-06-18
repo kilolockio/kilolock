@@ -114,9 +114,26 @@ Useful notes:
 
 - `-f` / `--file` scopes to resources declared in selected file(s)
 - `-o` / `--out` writes the plan spec to a chosen path
+- `kl plan` now performs a backend quota preflight when it can discover an HTTP backend state
+- hard quota overages fail the plan early; soft quota overages print a warning
 - destructive file-scoped applies require explicit acknowledgement
 
-### 4. Refresh without paying full Terraform refresh every time
+### 4. Check quota headroom before apply
+
+```sh
+./bin/kl quota remaining
+terraform plan -out=plan.tfplan
+./bin/kl quota check --tf-plan plan.tfplan
+```
+
+Useful notes:
+
+- `kl quota remaining` shows current state and environment headroom
+- `kl quota check` consumes a Terraform plan and evaluates the projected resource count against backend quota
+- soft limit breaches return success with a warning
+- hard limit breaches return a non-zero exit code before `kl apply`
+
+### 5. Refresh without paying full Terraform refresh every time
 
 ```sh
 ./bin/kl refresh example --dry-run
@@ -124,7 +141,7 @@ Useful notes:
 ./bin/kl query -f docs/queries/drift_current.sql --format json
 ```
 
-### 5. Inspect, repair, or roll back
+### 6. Inspect, repair, or roll back
 
 ```sh
 ./bin/kl status example
@@ -177,6 +194,7 @@ make ci-multi-instance-failure-drill
 - SQL querying across resources and states
 - provider-aware refresh and drift surfacing
 - file-scoped and targeted plan/apply helpers
+- backend-driven quota preview and plan admission checks
 - orchestrated apply foundations with reservations
 - per-resource history and emergency repair
 - self-hosted control plane for operator workflows

@@ -165,6 +165,31 @@ func TestDiscoverBackend_HTTP_WithAuth(t *testing.T) {
 	}
 }
 
+func TestDiscoverBackend_HTTP_FallsBackToBackendHCLAuth(t *testing.T) {
+	dir := writeInitFixture(t, initStateHTTP)
+	if err := os.WriteFile(filepath.Join(dir, "backend.tf"), []byte(`
+terraform {
+  backend "http" {
+    address  = "http://localhost:8080/states/big-state"
+    username = "hcl-user"
+    password = "hcl-pass"
+  }
+}
+`), 0o644); err != nil {
+		t.Fatalf("write backend.tf: %v", err)
+	}
+	got, err := DiscoverBackend(dir)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if got.Username != "hcl-user" {
+		t.Errorf("Username = %q", got.Username)
+	}
+	if got.Password != "hcl-pass" {
+		t.Errorf("Password = %q", got.Password)
+	}
+}
+
 func TestDiscoverBackend_UnsupportedType(t *testing.T) {
 	dir := writeInitFixture(t, initStateS3)
 	_, err := DiscoverBackend(dir)

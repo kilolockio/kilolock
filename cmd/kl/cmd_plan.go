@@ -407,7 +407,7 @@ func runPlan(args []string) int {
 		}
 	}
 
-	rc, err := emitPlanSpec(planEmitInput{
+	rc, spec, err := emitPlanSpec(planEmitInput{
 		showJSON:     jsonBytes,
 		configDir:    absConfigDir,
 		stateName:    stateName,
@@ -422,6 +422,21 @@ func runPlan(args []string) int {
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kl plan:", err)
+	}
+	if rc == 0 && stateName != "" && spec != nil {
+		client, cerr := newAPIClientFromBackend(absConfigDir)
+		if cerr != nil {
+			fmt.Fprintf(os.Stderr, "kl plan: quota check failed: %v\n", cerr)
+			return 1
+		}
+		preview, qerr := client.checkQuota(ctx, stateName, quotaPlanDeltaFromSummary(spec.PlanSummary))
+		if qerr != nil {
+			fmt.Fprintf(os.Stderr, "kl plan: quota check failed: %v\n", qerr)
+			return 1
+		}
+		if qrc := quotaPreviewExitCode(os.Stderr, preview, "kl plan"); qrc != 0 {
+			return qrc
+		}
 	}
 	return rc
 }
@@ -448,10 +463,10 @@ type planEmitInput struct {
 // to bytes, and writes it to outPath (or stdout when outPath == "-").
 // Returns the process exit code that runPlan should use (0 success,
 // 1 failure) plus any error to surface on stderr.
-func emitPlanSpec(in planEmitInput) (int, error) {
+func emitPlanSpec(in planEmitInput) (int, *plan.PlanSpec, error) {
 	parsed, err := plan.ParseShowJSONBytes(in.showJSON)
 	if err != nil {
-		return 1, fmt.Errorf("parse: %w", err)
+		return 1, nil, fmt.Errorf("parse: %w", err)
 	}
 	_ = plan.UpdateOwnershipCache(in.configDir, parsed)
 	spec := plan.BuildSpec(parsed, plan.SpecBuildInput{
@@ -464,31 +479,31 @@ func emitPlanSpec(in planEmitInput) (int, error) {
 	})
 	scope, err := plan.NormalizeFileScope(in.configDir, in.scopeFiles)
 	if err != nil {
-		return 1, err
+		return 1, nil, err
 	}
 	spec, err = plan.ApplyFileScope(parsed, spec, scope)
 	if err != nil {
-		return 1, err
+		return 1, nil, err
 	}
 	if len(in.scopeFiles) > 0 && len(spec.WriteSet) == 0 {
-		return 1, formatFileScopeEmptyWriteSet(parsed, spec, scope)
+		return 1, spec, formatFileScopeEmptyWriteSet(parsed, spec, scope)
 	}
 	specBytes, err := plan.MarshalSpec(spec)
 	if err != nil {
-		return 1, fmt.Errorf("marshal: %w", err)
+		return 1, spec, fmt.Errorf("marshal: %w", err)
 	}
 	if in.outPath == "-" {
 		if _, err := in.stdout.Write(append(specBytes, '\n')); err != nil {
-			return 1, fmt.Errorf("write stdout: %w", err)
+			return 1, spec, fmt.Errorf("write stdout: %w", err)
 		}
 	} else {
 		if err := os.WriteFile(in.outPath, specBytes, 0o644); err != nil {
-			return 1, fmt.Errorf("write spec: %w", err)
+			return 1, spec, fmt.Errorf("write spec: %w", err)
 		}
 		fmt.Fprintf(in.stderr, "kl plan: spec written to %s\n", in.outPath)
 	}
 	renderPlanSummary(in.stderr, spec)
-	return 0, nil
+	return 0, spec, nil
 }
 
 // resolvePlanOutPath derives the effective output path from the
@@ -589,6 +604,10 @@ func countReservations(rs []plan.PlanReservation, mode string) int {
 		}
 	}
 	return n
+}
+
+func quotaPlanDeltaFromSummary(s plan.PlanSummary) int {
+	return s.Create - s.Delete - s.Forget
 }
 
 // sortStrings sorts a slice in place. Tiny helper to avoid pulling

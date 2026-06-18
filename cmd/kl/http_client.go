@@ -109,7 +109,7 @@ func (c *apiClient) doJSON(ctx context.Context, method, path, stateName string, 
 		req.Header.Set("Content-Type", "application/json")
 	}
 	if strings.TrimSpace(stateName) != "" {
-		req.Header.Set("X-Kl-State-Name", strings.TrimSpace(stateName))
+		req.Header.Set("X-Kilolock-State-Name", strings.TrimSpace(stateName))
 	}
 	if c.bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+c.bearer)
