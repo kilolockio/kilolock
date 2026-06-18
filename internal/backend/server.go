@@ -78,6 +78,23 @@ type Server struct {
 	availabilityCheck AvailabilityCheck
 }
 
+type statusCapturingResponseWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusCapturingResponseWriter) WriteHeader(status int) {
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *statusCapturingResponseWriter) Write(p []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	return w.ResponseWriter.Write(p)
+}
+
 // New returns a Server backed by the given store and logger, using
 // the self-hosted SingleTenantAuthenticator by default. Hosted-mode
 // callers swap in a real Authenticator via WithAuthenticator before
@@ -152,6 +169,7 @@ func (s *Server) Handler() http.Handler {
 	// state identifiers like tenant/env/project without URL-encoding
 	// path separators.
 	mux.Handle("/states/{name...}", s.withAuth(http.HandlerFunc(s.handleState)))
+	mux.Handle("/state-unlock/{name...}", s.withAuth(http.HandlerFunc(s.handleStateUnlockPost)))
 	mux.Handle("/admin/routing/stats", s.withAuth(http.HandlerFunc(s.handleRoutingStats)))
 	mux.Handle("/admin/query", s.withAuth(http.HandlerFunc(s.handleAdminQuery)))
 	mux.Handle("/admin/provider-configs", s.withAuth(http.HandlerFunc(s.handleAdminProviderConfigs)))
@@ -1665,30 +1683,85 @@ func (s *Server) handleRoutingStats(w http.ResponseWriter, r *http.Request) {
 // protocol. The path pattern ensures r.PathValue("name") is populated.
 func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
+	start := time.Now()
+	sw := &statusCapturingResponseWriter{ResponseWriter: w}
+	defer s.logStateRequest(r.Context(), r, name, sw.status, time.Since(start))
 	if name == "" {
-		writeJSONError(w, http.StatusBadRequest, "state name is required")
+		writeJSONError(sw, http.StatusBadRequest, "state name is required")
 		return
 	}
 	if err := validateStateNameAgainstPrincipal(r.Context(), name); err != nil {
-		writeJSONError(w, http.StatusForbidden, err.Error())
+		writeJSONError(sw, http.StatusForbidden, err.Error())
 		return
 	}
 
 	switch r.Method {
 	case http.MethodGet:
-		s.handleGet(w, r, name)
+		s.handleGet(sw, r, name)
 	case http.MethodPost:
-		s.handlePost(w, r, name)
+		s.handlePost(sw, r, name)
 	case http.MethodDelete:
-		s.handleDelete(w, r, name)
+		s.handleDelete(sw, r, name)
 	case "LOCK":
-		s.handleLock(w, r, name)
+		s.handleLock(sw, r, name)
 	case "UNLOCK":
-		s.handleUnlock(w, r, name)
+		s.handleUnlock(sw, r, name)
 	default:
-		w.Header().Set("Allow", "GET, POST, DELETE, LOCK, UNLOCK")
-		writeJSONError(w, http.StatusMethodNotAllowed,
+		sw.Header().Set("Allow", "GET, POST, DELETE, LOCK, UNLOCK")
+		writeJSONError(sw, http.StatusMethodNotAllowed,
 			fmt.Sprintf("method %s not supported on %s", r.Method, r.URL.Path))
+	}
+}
+
+func (s *Server) handleStateUnlockPost(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	start := time.Now()
+	sw := &statusCapturingResponseWriter{ResponseWriter: w}
+	defer s.logStateRequest(r.Context(), r, name, sw.status, time.Since(start))
+	if name == "" {
+		writeJSONError(sw, http.StatusBadRequest, "state name is required")
+		return
+	}
+	if err := validateStateNameAgainstPrincipal(r.Context(), name); err != nil {
+		writeJSONError(sw, http.StatusForbidden, err.Error())
+		return
+	}
+	if r.Method != http.MethodPost {
+		sw.Header().Set("Allow", "POST")
+		writeJSONError(sw, http.StatusMethodNotAllowed,
+			fmt.Sprintf("method %s not supported on %s", r.Method, r.URL.Path))
+		return
+	}
+	s.handleUnlock(sw, r, name)
+}
+
+func (s *Server) logStateRequest(ctx context.Context, r *http.Request, state string, status int, duration time.Duration) {
+	if s.logger == nil {
+		return
+	}
+	if status == 0 {
+		status = http.StatusOK
+	}
+	attrs := append(requestLogAttrs(ctx, state),
+		"method", r.Method,
+		"path", r.URL.Path,
+		"query", r.URL.RawQuery,
+		"status", status,
+		"duration_ms", duration.Milliseconds(),
+	)
+	if cl := strings.TrimSpace(r.Header.Get("Content-Length")); cl != "" {
+		attrs = append(attrs, "content_length", cl)
+	}
+	if ua := strings.TrimSpace(r.UserAgent()); ua != "" {
+		attrs = append(attrs, "user_agent", ua)
+	}
+	switch {
+	case status >= 500:
+		s.logger.Error("state request failed", attrs...)
+	case status >= 400:
+		s.logger.Warn("state request rejected", attrs...)
+	default:
+		s.logger.Debug("state request", attrs...)
 	}
 }
 
@@ -2006,7 +2079,20 @@ func (s *Server) handleUnlock(w http.ResponseWriter, r *http.Request, name strin
 	}
 	actor := actorFromRequest(r)
 
-	if len(bytes.TrimSpace(body)) == 0 {
+	force, lockID, perr := parseUnlockRequest(body, r.URL.Query().Get("ID"))
+	if perr != nil {
+		s.logger.Warn("invalid unlock payload",
+			append(requestLogAttrs(r.Context(), name),
+				"body_len", len(body),
+				"body_preview", previewUnlockPayload(body),
+				"err", perr,
+			)...,
+		)
+		writeJSONError(w, http.StatusBadRequest, "unlock body must be valid JSON or a lock id string")
+		return
+	}
+
+	if force {
 		if ferr := st.ForceReleaseLock(r.Context(), name, actor); ferr != nil {
 			s.logger.Error("force release lock failed", "state", name, "err", ferr)
 			var tenantInactive *store.TenantNotActiveError
@@ -2025,33 +2111,7 @@ func (s *Server) handleUnlock(w http.ResponseWriter, r *http.Request, name strin
 		return
 	}
 
-	var info store.LockInfo
-	if jerr := json.Unmarshal(body, &info); jerr != nil {
-		writeJSONError(w, http.StatusBadRequest, "unlock body must be valid JSON")
-		return
-	}
-	if info.ID == "" {
-		// Defensive: some clients send {} as a force-unlock payload
-		// rather than an empty body. Treat that the same way.
-		if ferr := st.ForceReleaseLock(r.Context(), name, actor); ferr != nil {
-			s.logger.Error("force release lock failed", "state", name, "err", ferr)
-			var tenantInactive *store.TenantNotActiveError
-			if errors.As(ferr, &tenantInactive) {
-				writeJSONError(w, http.StatusForbidden, tenantInactive.Error())
-				return
-			}
-			if isEnvironmentUnavailableError(ferr) {
-				writeJSONError(w, http.StatusServiceUnavailable, "environment unavailable")
-				return
-			}
-			writeJSONError(w, http.StatusInternalServerError, "internal error")
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	err = st.ReleaseLock(r.Context(), name, info.ID, actor)
+	err = st.ReleaseLock(r.Context(), name, lockID, actor)
 	var tenantInactive *store.TenantNotActiveError
 	switch {
 	case errors.Is(err, store.ErrLockMismatch):
@@ -2070,6 +2130,70 @@ func (s *Server) handleUnlock(w http.ResponseWriter, r *http.Request, name strin
 		return
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+func parseUnlockRequest(body []byte, queryID string) (force bool, lockID string, err error) {
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 {
+		if q := strings.TrimSpace(queryID); q != "" {
+			return false, q, nil
+		}
+		return true, "", nil
+	}
+
+	var info store.LockInfo
+	if jerr := json.Unmarshal(trimmed, &info); jerr == nil {
+		if strings.TrimSpace(info.ID) == "" {
+			return true, "", nil
+		}
+		return false, strings.TrimSpace(info.ID), nil
+	}
+
+	var stringID string
+	if jerr := json.Unmarshal(trimmed, &stringID); jerr == nil {
+		if strings.TrimSpace(stringID) == "" {
+			return true, "", nil
+		}
+		return false, strings.TrimSpace(stringID), nil
+	}
+
+	rawID := strings.TrimSpace(string(trimmed))
+	if isLikelyLockID(rawID) {
+		return false, rawID, nil
+	}
+	if q := strings.TrimSpace(queryID); q != "" {
+		return false, q, nil
+	}
+
+	return false, "", fmt.Errorf("unsupported unlock payload shape")
+}
+
+func isLikelyLockID(s string) bool {
+	if strings.TrimSpace(s) == "" || len(s) > 256 || strings.ContainsAny(s, "\r\n\t ") {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case strings.ContainsRune("-_:.@/+", r):
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func previewUnlockPayload(body []byte) string {
+	trimmed := strings.TrimSpace(string(bytes.TrimSpace(body)))
+	if trimmed == "" {
+		return "<empty>"
+	}
+	if len(trimmed) > 160 {
+		return trimmed[:160] + "..."
+	}
+	return trimmed
 }
 
 func readBody(r *http.Request, limit int64) ([]byte, error) {

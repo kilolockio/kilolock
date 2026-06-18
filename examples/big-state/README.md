@@ -46,6 +46,17 @@ This example keeps the quick local backend active in:
 That file is meant for the default OSS quick-start stack: one runtime on
 `http://localhost:8080`, open auth, and no separate control plane.
 
+The backend method shape used in this repo is intentionally the same one we
+recommend for hosted/cloud deployments:
+
+- state reads/writes: `GET` / `POST` on `/states/...`
+- lock acquire: `LOCK` on `/states/...`
+- lock release: `POST` on `/state-unlock/...`
+
+This means the default OSS `docker-compose` flow can stay exactly as it is.
+You do **not** need one backend block for local compose and another one for
+cloud just because of unlock behavior.
+
 If you want to run `big-state` against the prod-like compose instead:
 
 1. Copy the prod-like sample over `backend.tf`:
@@ -137,6 +148,25 @@ terraform init
 
 The demo scripts in this directory will then follow the active backend
 configuration automatically.
+
+## Lock/unlock methods
+
+Why does this example use:
+
+```hcl
+lock_method    = "LOCK"
+unlock_method  = "POST"
+unlock_address = ".../state-unlock/..."
+```
+
+Because some managed edges and load balancers are happy to pass through
+nonstandard `LOCK` but reject `UNLOCK` requests with a body before they ever
+reach Kilolock. The dedicated `POST /state-unlock/...` route avoids that issue
+while keeping the backend behavior the same.
+
+Today Kilolock does **not** expose a matching `POST /state-lock/...` alias, so
+do not change `lock_method` to `POST` unless we implement that route in the
+backend first.
 
 ## Run the demo
 

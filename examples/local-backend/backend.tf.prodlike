@@ -16,9 +16,9 @@ terraform {
   backend "http" {
     address        = "http://localhost:8080/states/ws_*********/env_**********/big-state"
     lock_address   = "http://localhost:8080/states/ws_*********/env_**********/big-state"
-    unlock_address = "http://localhost:8080/states/ws_*********/env_**********/big-state"
+    unlock_address = "http://localhost:8080/state-unlock/ws_*********/env_**********/big-state"
     lock_method    = "LOCK"
-    unlock_method  = "UNLOCK"
+    unlock_method  = "POST"
 
     username = "ws_*********"
     # password = "kl_*****" // Provide vie environmental variable TF_HTTP_PASSWORD

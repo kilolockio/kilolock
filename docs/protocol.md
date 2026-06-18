@@ -25,12 +25,19 @@ terraform {
   backend "http" {
     address        = "http://localhost:8080/states/example"
     lock_address   = "http://localhost:8080/states/example"
-    unlock_address = "http://localhost:8080/states/example"
+    unlock_address = "http://localhost:8080/state-unlock/example"
     lock_method    = "LOCK"
-    unlock_method  = "UNLOCK"
+    unlock_method  = "POST"
   }
 }
 ```
+
+Recommended deployment patterns:
+
+- **Local OSS / Docker Compose:** use the sample above directly.
+- **Hosted / cloud behind a managed edge:** also use the sample above. The
+  separate `POST /state-unlock/...` route exists specifically because some
+  providers reject `UNLOCK` with a request body before it reaches Kilolock.
 
 ## Operations
 
@@ -126,6 +133,18 @@ Releases a held lock. Two shapes are accepted:
 - **409 Conflict** when an owner-release `ID` does not match the held
   lock.
 
+### `POST /state-unlock/{name}`
+
+Cloud-compatible alias for lock release. It performs the same operation as
+`UNLOCK /states/{name}` and accepts the same payload shapes:
+
+1. `LockInfo` JSON with matching `ID`
+2. empty body for force-unlock
+3. plain lock id string / JSON string / `?ID=...`
+
+Use this route when your ingress or load balancer does not reliably forward
+`UNLOCK` requests with a body.
+
 ## Authentication
 
 ### Multi-customer (hosted) — `KL_AUTH_MODE=database`
@@ -155,9 +174,9 @@ terraform {
   backend "http" {
     address        = "https://api.example.com/states/ws_ab12cd34ef56/env_12ab34cd56ef/prod"
     lock_address   = "https://api.example.com/states/ws_ab12cd34ef56/env_12ab34cd56ef/prod"
-    unlock_address = "https://api.example.com/states/ws_ab12cd34ef56/env_12ab34cd56ef/prod"
+    unlock_address = "https://api.example.com/state-unlock/ws_ab12cd34ef56/env_12ab34cd56ef/prod"
     lock_method    = "LOCK"
-    unlock_method  = "UNLOCK"
+    unlock_method  = "POST"
     username       = "ws_ab12cd34ef56"   # workspace_id
     password       = "kl_…"             # environment token secret
   }
@@ -221,9 +240,13 @@ Reads do not produce events in v0.
 
 ## Deviations from the Terraform `http` backend
 
-- **The HTTP method names for lock/unlock are fixed at `LOCK` / `UNLOCK`.**
-  Terraform's `http` backend lets you configure other methods. v0
-  Kilolock accepts only the defaults.
+- **Lock acquisition is fixed at `LOCK /states/{name}`.** Terraform's `http`
+  backend lets you configure other methods, but v0 Kilolock does not currently
+  provide a `POST` alias for lock acquisition.
+- **Lock release supports two wire shapes:** canonical
+  `UNLOCK /states/{name}` and the cloud-friendly alias
+  `POST /state-unlock/{name}`. The latter exists to work around managed edges
+  that reject `UNLOCK` with a body.
 - **No `update_method` distinction.** Terraform supports configuring an
   alternate method (e.g. `PUT`) for state writes; v0 implements `POST`
   only, which is the default.

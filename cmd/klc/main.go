@@ -51,6 +51,7 @@ func main() {
 
 func runServeControl(args []string) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
+	skipMigrate := fs.Bool("skip-migrate", false, "skip auto-applying control-plane migrations on startup")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -69,6 +70,12 @@ func runServeControl(args []string) int {
 		return 1
 	}
 	defer cpPool.Close()
+	if !*skipMigrate {
+		if err := migrate.Run(ctx, cpPool.Pool, logger); err != nil {
+			logger.Error("migrate control plane", "err", err)
+			return 1
+		}
+	}
 	control := store.New(cpPool.Pool)
 
 	apiToken := strings.TrimSpace(os.Getenv("KL_CONTROL_TOKEN"))

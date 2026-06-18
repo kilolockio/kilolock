@@ -77,9 +77,9 @@ terraform {
   backend "http" {
     address        = "https://api.kl.example/states/my-workspace"
     lock_address   = "https://api.kl.example/states/my-workspace"
-    unlock_address = "https://api.kl.example/states/my-workspace"
+    unlock_address = "https://api.kl.example/state-unlock/my-workspace"
     lock_method    = "LOCK"
-    unlock_method  = "UNLOCK"
+    unlock_method  = "POST"
     username       = "acme"      # tenant slug (informational + Basic auth user)
     password       = "kl_…"     # API token; bound to ONE environment
   }

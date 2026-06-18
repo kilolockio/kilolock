@@ -71,12 +71,21 @@ terraform {
   backend "http" {
     address        = "http://localhost:8080/states/example"
     lock_address   = "http://localhost:8080/states/example"
-    unlock_address = "http://localhost:8080/states/example"
+    unlock_address = "http://localhost:8080/state-unlock/example"
     lock_method    = "LOCK"
-    unlock_method  = "UNLOCK"
+    unlock_method  = "POST"
   }
 }
 ```
+
+For the default OSS quick-start and local `docker-compose`, keep this shape as-is:
+
+- `lock_method = "LOCK"`
+- `unlock_method = "POST"`
+- `unlock_address = ".../state-unlock/..."`
+
+That local stack already supports the cloud-compatible unlock route, so there is
+no need to maintain a separate local-only backend pattern.
 
 Then:
 

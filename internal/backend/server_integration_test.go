@@ -589,6 +589,105 @@ func TestEndToEnd_ForceUnlock_EmptyJSON(t *testing.T) {
 	}
 }
 
+func TestEndToEnd_Unlock_PlainStringID(t *testing.T) {
+	pool := requireDB(t)
+	t.Cleanup(pool.Close)
+	resetTables(t, pool)
+	setSelfHostedTenantLifecycleStatus(t, pool, store.LifecycleStatusActive)
+
+	srv := New(store.New(pool.Pool), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := srv.Handler()
+
+	state := "unlock-plain-id"
+	info := store.LockInfo{
+		ID:        "lock-plain-id",
+		Operation: "OperationTypeApply",
+		Who:       "alice@laptop",
+		Version:   "1.13.4",
+		Created:   time.Now().UTC().Format(time.RFC3339Nano),
+		Path:      "kl://states/" + state,
+	}
+	infoJSON, _ := json.Marshal(info)
+
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("LOCK", "/states/"+state, bytes.NewReader(infoJSON)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("LOCK status = %d, want 200", w.Code)
+	}
+
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("UNLOCK", "/states/"+state, strings.NewReader(info.ID)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("UNLOCK with plain string id status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+}
+
+func TestEndToEnd_Unlock_JSONStringID(t *testing.T) {
+	pool := requireDB(t)
+	t.Cleanup(pool.Close)
+	resetTables(t, pool)
+	setSelfHostedTenantLifecycleStatus(t, pool, store.LifecycleStatusActive)
+
+	srv := New(store.New(pool.Pool), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := srv.Handler()
+
+	state := "unlock-json-string-id"
+	info := store.LockInfo{
+		ID:        "lock-json-string-id",
+		Operation: "OperationTypeApply",
+		Who:       "alice@laptop",
+		Version:   "1.13.4",
+		Created:   time.Now().UTC().Format(time.RFC3339Nano),
+		Path:      "kl://states/" + state,
+	}
+	infoJSON, _ := json.Marshal(info)
+
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("LOCK", "/states/"+state, bytes.NewReader(infoJSON)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("LOCK status = %d, want 200", w.Code)
+	}
+
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("UNLOCK", "/states/"+state, strings.NewReader(`"`+info.ID+`"`)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("UNLOCK with JSON string id status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+}
+
+func TestEndToEnd_Unlock_QueryIDWithoutBody(t *testing.T) {
+	pool := requireDB(t)
+	t.Cleanup(pool.Close)
+	resetTables(t, pool)
+	setSelfHostedTenantLifecycleStatus(t, pool, store.LifecycleStatusActive)
+
+	srv := New(store.New(pool.Pool), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := srv.Handler()
+
+	state := "unlock-query-id"
+	info := store.LockInfo{
+		ID:        "lock-query-id",
+		Operation: "OperationTypeApply",
+		Who:       "alice@laptop",
+		Version:   "1.13.4",
+		Created:   time.Now().UTC().Format(time.RFC3339Nano),
+		Path:      "kl://states/" + state,
+	}
+	infoJSON, _ := json.Marshal(info)
+
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("LOCK", "/states/"+state, bytes.NewReader(infoJSON)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("LOCK status = %d, want 200", w.Code)
+	}
+
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("UNLOCK", "/states/"+state+"?ID="+info.ID, http.NoBody))
+	if w.Code != http.StatusOK {
+		t.Fatalf("UNLOCK with query id status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+}
+
 // TestEndToEnd_ForceUnlock_NoLockHeld confirms that force-unlock is
 // idempotent on a state with no held lock (and even on a state that
 // doesn't exist yet).
