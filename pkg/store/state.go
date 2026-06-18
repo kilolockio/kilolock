@@ -877,10 +877,6 @@ func (s *Store) DeleteState(ctx context.Context, name, lockID, actor string) err
 // already extracted the tenant and is responsible for keeping it
 // constant across the whole write. The explicit parameter keeps that
 // invariant visible in the signature.
-func upsertState(ctx context.Context, tx pgx.Tx, tenantID, name, lineage string) (string, error) {
-	return upsertStateWithCreator(ctx, tx, tenantID, name, lineage, initialStateCreatorUnknown)
-}
-
 func upsertStateWithCreator(ctx context.Context, tx pgx.Tx, tenantID, name, lineage string, creator initialStateCreator) (string, error) {
 	var existing struct {
 		ID      string

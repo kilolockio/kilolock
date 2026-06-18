@@ -1749,7 +1749,9 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	start := time.Now()
 	sw := &statusCapturingResponseWriter{ResponseWriter: w}
-	defer s.logStateRequest(r.Context(), r, name, sw.status, time.Since(start))
+	defer func() {
+		s.logStateRequest(r.Context(), r, name, sw.status, time.Since(start))
+	}()
 	if name == "" {
 		writeJSONError(sw, http.StatusBadRequest, "state name is required")
 		return
@@ -1781,7 +1783,9 @@ func (s *Server) handleStateUnlockPost(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	start := time.Now()
 	sw := &statusCapturingResponseWriter{ResponseWriter: w}
-	defer s.logStateRequest(r.Context(), r, name, sw.status, time.Since(start))
+	defer func() {
+		s.logStateRequest(r.Context(), r, name, sw.status, time.Since(start))
+	}()
 	if name == "" {
 		writeJSONError(sw, http.StatusBadRequest, "state name is required")
 		return
