@@ -740,6 +740,21 @@ RETURNING id::text, workspace_id, slug, name, kind, COALESCE(personal_owner_acco
 		if tenant.ID == "" {
 			return fmt.Errorf("could not allocate workspace id")
 		}
+		if _, err := tx.Exec(ctx, `
+UPDATE tenants
+SET billing_plan = $2,
+    max_environments = $3,
+    max_state_resources = $4,
+    max_environment_resources = $5
+WHERE slug = $1`,
+			tenant.Slug, StarterBillingPlan, StarterMaxEnvironments, StarterMaxStateResources, StarterMaxEnvironmentResources,
+		); err != nil {
+			return err
+		}
+		tenant.BillingPlan = StarterBillingPlan
+		tenant.MaxEnvironments = StarterMaxEnvironments
+		tenant.MaxStateResources = StarterMaxStateResources
+		tenant.MaxEnvironmentResources = StarterMaxEnvironmentResources
 		if autoDefaultEnv {
 			if _, err := ensureDefaultEnvironmentWithQuerier(ctx, tx, tenant.ID); err != nil {
 				return err
@@ -836,6 +851,21 @@ RETURNING id::text, workspace_id, slug, name, kind, COALESCE(personal_owner_acco
 		); err != nil {
 			return err
 		}
+		if _, err := tx.Exec(ctx, `
+UPDATE tenants
+SET billing_plan = $2,
+    max_environments = $3,
+    max_state_resources = $4,
+    max_environment_resources = $5
+WHERE slug = $1`,
+			tenant.Slug, StarterBillingPlan, StarterMaxEnvironments, StarterMaxStateResources, StarterMaxEnvironmentResources,
+		); err != nil {
+			return err
+		}
+		tenant.BillingPlan = StarterBillingPlan
+		tenant.MaxEnvironments = StarterMaxEnvironments
+		tenant.MaxStateResources = StarterMaxStateResources
+		tenant.MaxEnvironmentResources = StarterMaxEnvironmentResources
 		if autoDefaultEnv {
 			if _, err := ensureDefaultEnvironmentWithQuerier(ctx, tx, tenant.ID); err != nil {
 				return err

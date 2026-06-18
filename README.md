@@ -14,6 +14,12 @@ instead of a flat `.tfstate` blob. That gives you a drop-in HTTP backend,
 queryable state, provider-aware refresh, resource-level history/repair, and
 scoped/orchestrated workflows for large states.
 
+## Requirement
+
+Terraform must be installed on the machine where you run the examples and CLI
+workflows in this repo. Kilolock wraps Terraform-compatible workflows; it does
+not replace the Terraform CLI itself.
+
 ## Quick Start
 
 ### Fastest local stack

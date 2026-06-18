@@ -34,6 +34,13 @@ type TenantRow struct {
 	StripePeriodEnd         *time.Time
 }
 
+const (
+	StarterBillingPlan             = "starter"
+	StarterMaxEnvironments         = 1
+	StarterMaxStateResources       = 100
+	StarterMaxEnvironmentResources = 500
+)
+
 // CreateTenant inserts a new tenant. slug must be unique (e.g. acme-corp).
 func (s *Store) CreateTenant(ctx context.Context, slug, name string) (TenantRow, error) {
 	return s.CreateTenantWithDefaultEnvironment(ctx, slug, name, true)
