@@ -104,7 +104,7 @@ func (s *Store) AuthenticateAPIToken(ctx context.Context, secret, tenantSlug str
 	hash := auth.HashAPIToken(secret)
 
 	q := `
-		SELECT t.id::text, t.workspace_id, t.slug, e.id::text, e.env_public_id, e.slug, COALESCE(e.database_instance_key, 'shared'), tok.name,
+		SELECT t.id::text, t.workspace_id, t.slug, e.id::text, e.env_public_id, e.slug, e.state_lock_default_mode, COALESCE(e.database_instance_key, 'shared'), tok.name,
 		       t.lifecycle_status, t.billing_plan, t.max_environments, t.max_state_resources, t.max_environment_resources
 		FROM   api_tokens tok
 		JOIN   tenants t ON t.id = tok.tenant_id
@@ -159,15 +159,15 @@ func (s *Store) AuthenticateBackendToken(ctx context.Context, secret, tenantSlug
 
 	hash := auth.HashAPIToken(secret)
 	var (
-		tenantID, resolvedWorkspaceID, resolvedTenantSlug string
-		envID, envPublicID, envSlug, instanceKey          string
-		accountID, email                                  string
-		tenantLifecycleStatus, billingPlan                string
-		maxEnvironments, maxStateResources                int
-		maxEnvironmentResources                           int
+		tenantID, resolvedWorkspaceID, resolvedTenantSlug            string
+		envID, envPublicID, envSlug, envLockDefaultMode, instanceKey string
+		accountID, email                                             string
+		tenantLifecycleStatus, billingPlan                           string
+		maxEnvironments, maxStateResources                           int
+		maxEnvironmentResources                                      int
 	)
 	err := s.pool.QueryRow(ctx, `
-SELECT t.id::text, t.workspace_id, t.slug, e.id::text, e.env_public_id, e.slug, COALESCE(e.database_instance_key, 'shared'),
+SELECT t.id::text, t.workspace_id, t.slug, e.id::text, e.env_public_id, e.slug, e.state_lock_default_mode, COALESCE(e.database_instance_key, 'shared'),
        a.id::text, a.email, t.lifecycle_status, t.billing_plan, t.max_environments, t.max_state_resources, t.max_environment_resources
 FROM portal_personal_access_tokens pat
 JOIN portal_accounts a ON a.id = pat.account_id
@@ -188,7 +188,7 @@ WHERE pat.token_hash = $1
 LIMIT 1`,
 		hash, workspaceID, environmentPublicID,
 	).Scan(
-		&tenantID, &resolvedWorkspaceID, &resolvedTenantSlug, &envID, &envPublicID, &envSlug, &instanceKey,
+		&tenantID, &resolvedWorkspaceID, &resolvedTenantSlug, &envID, &envPublicID, &envSlug, &envLockDefaultMode, &instanceKey,
 		&accountID, &email, &tenantLifecycleStatus, &billingPlan, &maxEnvironments, &maxStateResources, &maxEnvironmentResources,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -203,29 +203,30 @@ SET last_used_at = now()
 WHERE token_hash = $1
   AND revoked_at IS NULL`, hash)
 	return auth.Principal{
-		TenantID:                tenantID,
-		WorkspaceID:             resolvedWorkspaceID,
-		EnvironmentID:           envID,
-		TenantSlug:              resolvedTenantSlug,
-		EnvironmentPublicID:     envPublicID,
-		EnvironmentSlug:         envSlug,
-		DatabaseInstanceKey:     instanceKey,
-		TenantLifecycleStatus:   tenantLifecycleStatus,
-		BillingPlan:             billingPlan,
-		MaxEnvironments:         maxEnvironments,
-		MaxStateResources:       maxStateResources,
-		MaxEnvironmentResources: maxEnvironmentResources,
-		UserID:                  accountID,
-		Email:                   email,
-		Source:                  "portal-pat",
+		TenantID:                        tenantID,
+		WorkspaceID:                     resolvedWorkspaceID,
+		EnvironmentID:                   envID,
+		TenantSlug:                      resolvedTenantSlug,
+		EnvironmentPublicID:             envPublicID,
+		EnvironmentSlug:                 envSlug,
+		EnvironmentStateLockDefaultMode: envLockDefaultMode,
+		DatabaseInstanceKey:             instanceKey,
+		TenantLifecycleStatus:           tenantLifecycleStatus,
+		BillingPlan:                     billingPlan,
+		MaxEnvironments:                 maxEnvironments,
+		MaxStateResources:               maxStateResources,
+		MaxEnvironmentResources:         maxEnvironmentResources,
+		UserID:                          accountID,
+		Email:                           email,
+		Source:                          "portal-pat",
 	}, nil
 }
 
 func (s *Store) scanPrincipal(ctx context.Context, q string, args ...any) (auth.Principal, error) {
-	var tenantID, workspaceID, slug, envID, envPublicID, envSlug, instanceKey, tokenName, tenantLifecycleStatus, billingPlan string
+	var tenantID, workspaceID, slug, envID, envPublicID, envSlug, envLockDefaultMode, instanceKey, tokenName, tenantLifecycleStatus, billingPlan string
 	var maxEnvironments, maxStateResources, maxEnvironmentResources int
 	err := s.pool.QueryRow(ctx, q, args...).Scan(
-		&tenantID, &workspaceID, &slug, &envID, &envPublicID, &envSlug, &instanceKey, &tokenName,
+		&tenantID, &workspaceID, &slug, &envID, &envPublicID, &envSlug, &envLockDefaultMode, &instanceKey, &tokenName,
 		&tenantLifecycleStatus, &billingPlan, &maxEnvironments, &maxStateResources, &maxEnvironmentResources,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -241,20 +242,21 @@ func (s *Store) scanPrincipal(ctx context.Context, q string, args ...any) (auth.
 		args[0],
 	)
 	return auth.Principal{
-		TenantID:                tenantID,
-		WorkspaceID:             workspaceID,
-		EnvironmentID:           envID,
-		TenantSlug:              slug,
-		EnvironmentPublicID:     envPublicID,
-		EnvironmentSlug:         envSlug,
-		DatabaseInstanceKey:     instanceKey,
-		TenantLifecycleStatus:   tenantLifecycleStatus,
-		BillingPlan:             billingPlan,
-		MaxEnvironments:         maxEnvironments,
-		MaxStateResources:       maxStateResources,
-		MaxEnvironmentResources: maxEnvironmentResources,
-		Email:                   slug + "/" + envSlug + "/" + tokenName,
-		Source:                  "http-api-token",
+		TenantID:                        tenantID,
+		WorkspaceID:                     workspaceID,
+		EnvironmentID:                   envID,
+		TenantSlug:                      slug,
+		EnvironmentPublicID:             envPublicID,
+		EnvironmentSlug:                 envSlug,
+		EnvironmentStateLockDefaultMode: envLockDefaultMode,
+		DatabaseInstanceKey:             instanceKey,
+		TenantLifecycleStatus:           tenantLifecycleStatus,
+		BillingPlan:                     billingPlan,
+		MaxEnvironments:                 maxEnvironments,
+		MaxStateResources:               maxStateResources,
+		MaxEnvironmentResources:         maxEnvironmentResources,
+		Email:                           slug + "/" + envSlug + "/" + tokenName,
+		Source:                          "http-api-token",
 	}, nil
 }
 

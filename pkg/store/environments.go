@@ -35,6 +35,7 @@ type EnvironmentRow struct {
 	WorkspaceID          string
 	TenantSlug           string
 	Slug                 string
+	StateLockDefaultMode EnvironmentStateLockDefaultMode
 	LifecycleStatus      LifecycleStatus
 	Tier                 EnvironmentTier
 	Status               EnvironmentStatus
@@ -72,8 +73,8 @@ type queryRower interface {
 func ensureDefaultEnvironmentWithQuerier(ctx context.Context, q queryRower, tenantID string) (string, error) {
 	var row EnvironmentRow
 	err := q.QueryRow(ctx,
-		`INSERT INTO environments (tenant_id, slug, tier, status)
-		 VALUES ($1, 'default', 'shared_host', 'ready')
+		`INSERT INTO environments (tenant_id, slug, tier, status, state_lock_default_mode)
+		 VALUES ($1, 'default', 'shared_host', 'ready', 'auto')
 		 ON CONFLICT ON CONSTRAINT environments_tenant_slug_key DO UPDATE
 		   SET updated_at = environments.updated_at
 		 RETURNING id`,
@@ -88,10 +89,18 @@ func ensureDefaultEnvironmentWithQuerier(ctx context.Context, q queryRower, tena
 // CreateEnvironment inserts an environment for a tenant selected by
 // workspace_id or slug.
 func (s *Store) CreateEnvironment(ctx context.Context, tenantSlug, envSlug string, tier EnvironmentTier, instanceKey string) (EnvironmentRow, error) {
+	return s.CreateEnvironmentWithStateLockDefaultMode(ctx, tenantSlug, envSlug, tier, instanceKey, EnvironmentStateLockDefaultAuto)
+}
+
+func (s *Store) CreateEnvironmentWithStateLockDefaultMode(ctx context.Context, tenantSlug, envSlug string, tier EnvironmentTier, instanceKey string, mode EnvironmentStateLockDefaultMode) (EnvironmentRow, error) {
 	tenantSlug = strings.TrimSpace(tenantSlug)
 	envSlug = strings.TrimSpace(envSlug)
 	if tenantSlug == "" || envSlug == "" {
 		return EnvironmentRow{}, fmt.Errorf("workspace_id (or slug) and environment slug are required")
+	}
+	mode = normalizeEnvironmentStateLockDefaultMode(string(mode))
+	if !mode.Valid() {
+		return EnvironmentRow{}, fmt.Errorf("invalid environment state lock default mode %q", mode)
 	}
 	switch strings.TrimSpace(string(tier)) {
 	case "", "shared":
@@ -129,10 +138,10 @@ func (s *Store) CreateEnvironment(ctx context.Context, tenantSlug, envSlug strin
 	}
 	var envID string
 	err = s.pool.QueryRow(ctx,
-		`INSERT INTO environments (tenant_id, slug, tier, status, database_instance_key, database_name, provision_started_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, CASE WHEN $3 = 'dedicated_host' THEN now() ELSE NULL END)
+		`INSERT INTO environments (tenant_id, slug, tier, status, database_instance_key, database_name, provision_started_at, state_lock_default_mode)
+		 VALUES ($1, $2, $3, $4, $5, $6, CASE WHEN $3 = 'dedicated_host' THEN now() ELSE NULL END, $7)
 		 RETURNING id`,
-		tenant.ID, envSlug, string(tier), status, instanceKey, dbName,
+		tenant.ID, envSlug, string(tier), status, instanceKey, dbName, string(mode),
 	).Scan(&envID)
 	if err != nil {
 		return EnvironmentRow{}, err

@@ -3,7 +3,7 @@ package store
 import "github.com/jackc/pgx/v5"
 
 func environmentSelectColumns() string {
-	return `e.id::text, e.env_public_id, e.tenant_id::text, t.workspace_id, t.slug, e.slug, e.lifecycle_status, e.tier, e.status,
+	return `e.id::text, e.env_public_id, e.tenant_id::text, t.workspace_id, t.slug, e.slug, e.state_lock_default_mode, e.lifecycle_status, e.tier, e.status,
 	        COALESCE(e.database_instance_key, 'shared'),
 	        COALESCE(e.database_name, ''), COALESCE(e.database_dsn, ''),
 	        COALESCE(e.host_connection_name, ''),
@@ -25,7 +25,7 @@ func environmentFromJoin() string {
 
 func environmentScanDest(row *EnvironmentRow) []any {
 	return []any{
-		&row.ID, &row.EnvPublicID, &row.TenantID, &row.WorkspaceID, &row.TenantSlug, &row.Slug, &row.LifecycleStatus, &row.Tier, &row.Status,
+		&row.ID, &row.EnvPublicID, &row.TenantID, &row.WorkspaceID, &row.TenantSlug, &row.Slug, &row.StateLockDefaultMode, &row.LifecycleStatus, &row.Tier, &row.Status,
 		&row.DatabaseInstanceKey,
 		&row.DatabaseName, &row.DatabaseDSN, &row.HostConnectionName, &row.SourceDatabaseDSN,
 		&row.ProvisionError, &row.ProvisionStartedAt, &row.ProvisionFinishedAt,

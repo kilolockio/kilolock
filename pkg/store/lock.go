@@ -45,7 +45,7 @@ func (s *Store) AcquireLock(ctx context.Context, name string, info LockInfo) (cu
 		if err := enforceTenantLifecycleActive(ctx, tx, tenantID); err != nil {
 			return err
 		}
-		stateID, err := upsertState(ctx, tx, tenantID, name, "")
+		stateID, err := upsertStateWithCreator(ctx, tx, tenantID, name, "", initialStateCreatorBackend)
 		if err != nil {
 			return err
 		}

@@ -69,6 +69,10 @@ type Principal struct {
 	// used in Terraform backend paths (e.g. env_ab12cd34ef56).
 	EnvironmentPublicID string
 
+	// EnvironmentStateLockDefaultMode carries the per-environment default
+	// used when a brand-new state is first created.
+	EnvironmentStateLockDefaultMode string
+
 	// DatabaseInstanceKey is the configured data-plane routing key.
 	DatabaseInstanceKey string
 

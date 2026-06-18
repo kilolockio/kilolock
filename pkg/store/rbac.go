@@ -190,7 +190,7 @@ func (s *Store) AuthorizeControlAPIToken(ctx context.Context, secret, permission
 	var p auth.Principal
 	var tokenID string
 	err := s.pool.QueryRow(ctx, `
-		SELECT t.id::text, t.workspace_id, t.slug, e.id::text, e.env_public_id, e.slug, COALESCE(e.database_instance_key,'shared'), tok.name, tok.id::text
+		SELECT t.id::text, t.workspace_id, t.slug, e.id::text, e.env_public_id, e.slug, e.state_lock_default_mode, COALESCE(e.database_instance_key,'shared'), tok.name, tok.id::text
 		FROM api_tokens tok
 		JOIN tenants t ON t.id = tok.tenant_id
 		JOIN environments e ON e.id = tok.environment_id
@@ -198,7 +198,7 @@ func (s *Store) AuthorizeControlAPIToken(ctx context.Context, secret, permission
 		  AND tok.revoked_at IS NULL
 		  AND tok.lifecycle_status = 'active'
 		  AND e.lifecycle_status = 'active'
-	`, hash).Scan(&p.TenantID, &p.WorkspaceID, &p.TenantSlug, &p.EnvironmentID, &p.EnvironmentPublicID, &p.EnvironmentSlug, &p.DatabaseInstanceKey, &p.Email, &tokenID)
+	`, hash).Scan(&p.TenantID, &p.WorkspaceID, &p.TenantSlug, &p.EnvironmentID, &p.EnvironmentPublicID, &p.EnvironmentSlug, &p.EnvironmentStateLockDefaultMode, &p.DatabaseInstanceKey, &p.Email, &tokenID)
 	if err != nil {
 		return auth.Principal{}, false, nil
 	}

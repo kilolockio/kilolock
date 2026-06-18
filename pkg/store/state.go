@@ -175,7 +175,7 @@ func (s *Store) EnsureCurrentStateInfo(ctx context.Context, name string) (*Curre
 		if err := enforceTenantLifecycleActive(ctx, tx, tenantID); err != nil {
 			return err
 		}
-		stateID, err := upsertState(ctx, tx, tenantID, name, "")
+		stateID, err := upsertStateWithCreator(ctx, tx, tenantID, name, "", initialStateCreatorKL)
 		if err != nil {
 			return err
 		}
@@ -418,7 +418,11 @@ func (s *Store) writeStateInternal(ctx context.Context, name, lockID string, raw
 		if err := enforceTenantLifecycleActive(ctx, tx, tenantID); err != nil {
 			return err
 		}
-		stateID, err := upsertState(ctx, tx, tenantID, name, parsed.Lineage)
+		creator := initialStateCreatorKL
+		if strings.EqualFold(strings.TrimSpace(source), "http_backend") {
+			creator = initialStateCreatorBackend
+		}
+		stateID, err := upsertStateWithCreator(ctx, tx, tenantID, name, parsed.Lineage, creator)
 		if err != nil {
 			return err
 		}
@@ -874,6 +878,10 @@ func (s *Store) DeleteState(ctx context.Context, name, lockID, actor string) err
 // constant across the whole write. The explicit parameter keeps that
 // invariant visible in the signature.
 func upsertState(ctx context.Context, tx pgx.Tx, tenantID, name, lineage string) (string, error) {
+	return upsertStateWithCreator(ctx, tx, tenantID, name, lineage, initialStateCreatorUnknown)
+}
+
+func upsertStateWithCreator(ctx context.Context, tx pgx.Tx, tenantID, name, lineage string, creator initialStateCreator) (string, error) {
 	var existing struct {
 		ID      string
 		Name    string
@@ -914,17 +922,19 @@ func upsertState(ctx context.Context, tx pgx.Tx, tenantID, name, lineage string)
 	if lineage != "" {
 		lineageArg = lineage
 	}
+	principal, _ := auth.FromContext(ctx)
+	exclusiveLocks, coexistenceMode := initialStatePolicyForPrincipal(principal, creator)
 	// ON CONFLICT targets the named (tenant_id, name) constraint
 	// added by migration 0009. The constraint-name form (vs
 	// `ON CONFLICT (tenant_id, name)`) is more self-documenting
 	// and survives changes to the column order in the unique
 	// index.
 	err = tx.QueryRow(ctx,
-		`INSERT INTO states (tenant_id, name, lineage) VALUES ($1, $2, $3)
+		`INSERT INTO states (tenant_id, name, lineage, exclusive_locks, coexistence_mode) VALUES ($1, $2, $3, $4, $5)
 		 ON CONFLICT ON CONSTRAINT states_tenant_name_key DO UPDATE
 		     SET lineage = COALESCE(states.lineage, EXCLUDED.lineage)
 		 RETURNING id`,
-		tenantID, name, lineageArg,
+		tenantID, name, lineageArg, exclusiveLocks, string(coexistenceMode),
 	).Scan(&id)
 	return id, err
 }
