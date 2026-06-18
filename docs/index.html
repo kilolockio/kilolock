@@ -1,212 +1,257 @@
 <!doctype html>
 <html lang="en">
-
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Kilolock — Scale engineers, not state-file locks</title>
-  <meta name="description"
-    content="Kilolock is a self-hosted graph-native control plane for Terraform and OpenTofu, built to let engineers work in parallel on large shared state." />
+  <title>KiloLock OSS | What it is, what it does, and where it fits</title>
+  <meta
+    name="description"
+    content="KiloLock OSS is a self-hosted Terraform and OpenTofu HTTP backend with a PostgreSQL-backed state model, query workflows, and optional advanced coordination features." />
   <link rel="stylesheet" href="./assets/styles.css" />
 </head>
-
 <body>
-  <header class="hero">
-    <nav class="nav">
-      <div class="brand">Kilolock</div>
-      <div class="nav-links">
-        <a href="https://github.com/kilolockio/kilolock">README</a>
-        <a href="./runbooks/execution-plane-audit-checklist.md">Runbooks</a>
-        <a href="./adr/0007-parallel-apply.md">ADR 0007</a>
-        <a href="https://github.com/kilolockio/kilolock">GitHub</a>
-      </div>
-    </nav>
-
-    <div class="hero-copy">
-      <p class="eyebrow">Self-hosted Terraform/OpenTofu state engine</p>
-      <h1>Scale engineers, not state-file locks.</h1>
-      <p class="lede">
-        Kilolock replaces the flat <code>.tfstate</code> blob with a normalized
-        PostgreSQL graph so teams can query state, inspect drift, repair a single
-        resource, and coordinate parallel work on large shared state with much
-        better visibility than a whole-workspace lock.
-      </p>
-      <div class="cta-row">
-        <a class="button primary" href="https://github.com/kilolockio/kilolock">Read the quickstart</a>
-        <a class="button secondary" href="./runbooks/resource-level-emergency-repair.md">See repair workflows</a>
-      </div>
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <a class="brand" href="#top">KiloLock OSS</a>
+      <nav class="site-nav" aria-label="Primary">
+        <a href="#summary">Summary</a>
+        <a href="#today">Today</a>
+        <a href="#limits">Limits</a>
+        <a href="#docs">Docs</a>
+      </nav>
+      <a class="header-link" href="https://github.com/kilolockio/kilolock">GitHub</a>
     </div>
   </header>
 
-  <main>
-    <section class="panel three-up">
-      <article>
-        <h2>Main value</h2>
-        <p>
-          The headline benefit is not “SQL is neat.” It is letting more engineers
-          work safely on the same large state without forcing everything through a
-          single coarse lock.
-        </p>
-      </article>
-      <article>
-        <h2>Drop-in path</h2>
-        <p>
-          Existing Terraform and OpenTofu workflows still talk to an HTTP backend.
-          Same HCL, same providers, same CLI habits — different engine under the
-          state.
-        </p>
-      </article>
-      <article>
-        <h2>Self-hosted</h2>
-        <p>
-          This repository is the OSS core: <code>kl</code>,
-          <code>kld</code>, <code>klc</code>, local compose,
-          query/repair flows, and operator APIs.
-        </p>
-      </article>
-    </section>
-
-    <section class="panel">
-      <h2>Large state is not always the mistake</h2>
-      <p>
-        Sometimes the infrastructure really is tightly coupled. Forcing it into many smaller Terraform states can create
-        a distributed monolith where the dependency graph still exists, but now it is harder to reason about and harder
-        to change safely.
-      </p>
-      <p>
-        In those cases, a large shared state can be the honest representation of the system. Kilolock is built for
-        that reality: better collaboration on one large state, better visibility, and better repair workflows when
-        something goes wrong.
-      </p>
-    </section>
-
-    <section class="panel">
-      <h2>Why teams hit a wall with large state</h2>
-      <div class="compare-grid">
-        <div class="card bad">
-          <h3>Flat state file</h3>
-          <ul>
-            <li>Whole-workspace lock for unrelated changes</li>
-            <li>Slow refresh and plan loops as state grows</li>
-            <li>Weak answers to “what changed?” or “what drifted?”</li>
-            <li>Emergency repair usually means blunt whole-state recovery</li>
-          </ul>
+  <main id="top">
+    <section class="hero">
+      <div class="wrap hero-grid">
+        <div class="hero-copy">
+          <p class="eyebrow">Open-source and self-hosted</p>
+          <h1>A technical summary of what KiloLock is and is not.</h1>
+          <p class="lead">
+            KiloLock OSS is a self-hosted Terraform and OpenTofu HTTP backend. It stores state in PostgreSQL rather than as a flat state file, which makes query, history, drift, and some more advanced coordination workflows possible.
+          </p>
+          <p class="lead lead-secondary">
+            The intended low-risk adoption path is simple: use it as a backend first. The deeper capabilities exist, but they are not required to get value from the project.
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="https://github.com/kilolockio/kilolock/blob/main/README.md">Read the README</a>
+            <a class="button secondary" href="./runbooks/self-hosted-bootstrap.md">Self-hosting guide</a>
+          </div>
         </div>
-        <div class="card good">
-          <h3>Kilolock</h3>
-          <ul>
-            <li>Normalized resource graph in PostgreSQL</li>
-            <li>Reservation-aware orchestration for scoped work</li>
-            <li>Queryable resource history and drift</li>
-            <li>Resource-level inspection and repair workflows</li>
-          </ul>
+
+        <aside class="summary-panel" aria-label="Project summary">
+          <div class="mini-card">
+            <h2>Short version</h2>
+            <ul class="plain-list">
+              <li>Works as a Terraform/OpenTofu HTTP backend.</li>
+              <li>Can be self-hosted with Docker Compose.</li>
+              <li>Adds queryable state and resource history.</li>
+              <li>Includes more advanced KiloLock-specific workflows.</li>
+            </ul>
+          </div>
+          <div class="mini-card">
+            <h2>Important framing</h2>
+            <p>
+              This page is meant to help technical users evaluate fit, not to present KiloLock as a finished replacement for every Terraform platform product.
+            </p>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <section id="summary" class="section">
+      <div class="wrap">
+        <div class="section-heading">
+          <p class="eyebrow">Summary</p>
+          <h2>What KiloLock OSS is</h2>
+        </div>
+
+        <div class="grid-two">
+          <article class="card">
+            <h3>Core role</h3>
+            <p>
+              KiloLock OSS is the open-source backend and self-hosted core. It covers backend protocol handling, state storage, query workflows, refresh and drift workflows, repair-oriented tooling, and the server-side foundations for more advanced orchestration.
+            </p>
+          </article>
+          <article class="card">
+            <h3>Adoption model</h3>
+            <p>
+              The practical first use is still ordinary: configure a standard HTTP backend, run <code>terraform init</code>, and keep using Terraform or OpenTofu. Users do not need to adopt the whole KiloLock model on day one.
+            </p>
+          </article>
         </div>
       </div>
     </section>
 
-    <section class="panel">
-      <h2>Architecture at a glance</h2>
-      <p class="note">Client workflows stay API-only. Runtime and control services own the private databases.</p>
-      <img class="diagram" src="./assets/architecture.svg"
-        alt="Architecture diagram showing engineers and the kl CLI calling kld and klc APIs, which in turn talk to state and metadata PostgreSQL databases." />
-    </section>
+    <section class="section section-alt">
+      <div class="wrap">
+        <div class="section-heading">
+          <p class="eyebrow">Scope</p>
+          <h2>What problem it is trying to solve</h2>
+          <p>
+            KiloLock is built around the idea that some infrastructure really does live as one tightly coupled system. In those cases, splitting into many smaller states does not always remove coordination pain. Sometimes it only moves that pain elsewhere.
+          </p>
+        </div>
 
-    <section class="panel">
-      <h2>Why parallel apply matters</h2>
-      <p class="note">The technical backend work matters because it removes a people bottleneck: more engineers can work
-        on the same large state without queueing behind one lock.</p>
-      <img class="diagram" src="./assets/parallel-apply-compare.svg"
-        alt="Comparison diagram showing vanilla Terraform serializing disjoint work through a whole-state lock, while Kilolock allows disjoint resource reservations to proceed in parallel." />
-    </section>
-
-    <section class="panel">
-      <h2>What you get today</h2>
-      <div class="feature-grid">
-        <article class="card">
-          <h3>Queryable state</h3>
-          <p>Run backend-native queries over normalized resources, dependencies, outputs, and drift.</p>
-        </article>
-        <article class="card">
-          <h3>Provider-aware refresh</h3>
-          <p>Refresh state out of band and inspect drift without paying full plan refresh every time.</p>
-        </article>
-        <article class="card">
-          <h3>Scoped/orchestrated apply</h3>
-          <p>Use file- and target-scoped workflows with reservation-aware orchestration.</p>
-        </article>
-        <article class="card">
-          <h3>Resource repair</h3>
-          <p>Preview history and repair a single resource’s state bookkeeping without blunt whole-state rollback.</p>
-        </article>
-        <article class="card">
-          <h3>Control-plane APIs</h3>
-          <p>Run self-hosted operator workflows for lifecycle, routing, entitlements, and control operations.</p>
-        </article>
-        <article class="card">
-          <h3>Parallel-apply foundations</h3>
-          <p>The concurrency story is real: disjoint changes on large shared state are the center of the design.</p>
-        </article>
+        <div class="note-panel">
+          <p>
+            The project is therefore not based on the assumption that every large Terraform state is a design failure. It assumes some large states are real, and tries to make them easier to inspect, operate, and coordinate safely.
+          </p>
+        </div>
       </div>
     </section>
 
-    <section class="panel code-panel">
-      <h2>Quickstart</h2>
-      <pre><code>docker-compose up --build -d</code></pre>
-      <p class="note">
-        Then point Terraform’s <code>backend "http"</code> at
-        <code>http://localhost:8080/states/&lt;workspace&gt;/&lt;environment&gt;/&lt;state&gt;</code>.
-      </p>
+    <section id="today" class="section">
+      <div class="wrap">
+        <div class="section-heading">
+          <p class="eyebrow">Today</p>
+          <h2>What KiloLock can do today</h2>
+          <p>
+            This is the practical, present-tense view of the OSS project.
+          </p>
+        </div>
+
+        <div class="feature-grid">
+          <article class="card">
+            <h3>HTTP backend compatibility</h3>
+            <p>It works as a Terraform/OpenTofu HTTP backend, so the initial integration path stays familiar.</p>
+          </article>
+          <article class="card">
+            <h3>Self-hosting</h3>
+            <p>It can be run locally or self-hosted with Docker Compose, including a fuller prod-like path.</p>
+          </article>
+          <article class="card">
+            <h3>Queryable state</h3>
+            <p>State is stored in PostgreSQL in a way that supports direct queries over resources, dependencies, versions, and related metadata.</p>
+          </article>
+          <article class="card">
+            <h3>Refresh and drift workflows</h3>
+            <p>It includes provider-aware refresh and drift-oriented workflows that do not depend on a full Terraform cycle every time.</p>
+          </article>
+          <article class="card">
+            <h3>History and repair workflows</h3>
+            <p>It supports per-resource history inspection and targeted repair or rollback-oriented workflows.</p>
+          </article>
+          <article class="card">
+            <h3>Advanced coordination work</h3>
+            <p>It also contains the foundations for scoped workflows, reservations, and more advanced coordination patterns when users adopt KiloLock-specific tooling.</p>
+          </article>
+        </div>
+      </div>
     </section>
 
-    <section class="panel two-up">
-      <article>
-        <h2>Why this matters operationally</h2>
-        <ul>
-          <li>parallel collaboration on one honest shared state</li>
-          <li>resource-level query, history, repair, and rollback</li>
-          <li>less pressure to invent artificial state splits just to escape locking</li>
-        </ul>
-      </article>
-      <article>
-        <h2>Good fit</h2>
-        <ul>
-          <li>Large shared states with multiple engineers</li>
-          <li>Teams that need better visibility into drift and blast radius</li>
-          <li>Operators who want self-hosted control over state data</li>
-        </ul>
-      </article>
-      <article>
-        <h2>Out of scope here</h2>
-        <ul>
-          <li>Hosted customer portal UX</li>
-          <li>Billing/signup glue and managed-service packaging</li>
-          <li>Cloud-specific internal deployment repo content</li>
-        </ul>
-      </article>
+    <section class="section">
+      <div class="wrap">
+        <div class="section-heading">
+          <p class="eyebrow">Boundaries</p>
+          <h2>What is true, but should not be oversold</h2>
+        </div>
+
+        <div class="grid-two">
+          <article class="card emphasis">
+            <h3>Advanced features exist</h3>
+            <p>
+              Resource-aware coordination, scoped apply behavior, richer queryability, and repair workflows are part of the project direction and already exist in meaningful form.
+            </p>
+          </article>
+          <article class="card">
+            <h3>But they are not the first promise</h3>
+            <p>
+              The first promise should stay modest: self-hosted backend compatibility and better state visibility. The deeper workflow changes are the second step, not the entrance requirement.
+            </p>
+          </article>
+        </div>
+      </div>
     </section>
 
-    <section class="panel links">
-      <h2>Go deeper</h2>
-      <div class="link-grid">
-        <a class="link-card" href="https://github.com/kilolockio/kilolock">
-          <strong>README</strong>
-          <span>Quickstart, roadmap, examples, binaries</span>
-        </a>
-        <a class="link-card" href="./adr/0007-parallel-apply.md">
-          <strong>ADR 0007</strong>
-          <span>Parallel apply design and reservation model</span>
-        </a>
-        <a class="link-card" href="./runbooks/execution-plane-audit-checklist.md">
-          <strong>Execution audit</strong>
-          <span>Step-by-step backend semantics validation</span>
-        </a>
-        <a class="link-card" href="./runbooks/resource-level-emergency-repair.md">
-          <strong>Resource repair</strong>
-          <span>Query, history, preview, and rollback workflows</span>
-        </a>
+    <section id="limits" class="section section-alt">
+      <div class="wrap">
+        <div class="section-heading">
+          <p class="eyebrow">Limits</p>
+          <h2>What KiloLock OSS does not claim to do</h2>
+        </div>
+
+        <div class="limit-grid">
+          <article class="limit-card">
+            <h3>Not a full Terraform Cloud replacement</h3>
+            <p>It is not presented as a complete hosted platform, runner product, or full SaaS control experience.</p>
+          </article>
+          <article class="limit-card">
+            <h3>Not a fix for every Terraform performance problem</h3>
+            <p>Storing state differently helps backend visibility and coordination, but it does not erase Terraform's own graph-build and provider execution costs.</p>
+          </article>
+          <article class="limit-card">
+            <h3>Not magic parallelism</h3>
+            <p>Parallel-safe workflows only make sense where resource footprints are genuinely disjoint. Conflicting changes still need coordination.</p>
+          </article>
+          <article class="limit-card">
+            <h3>Not a substitute for sound engineering</h3>
+            <p>It does not merge HCL for you, remove design coupling, or eliminate the need for careful infrastructure ownership.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="wrap split">
+        <div>
+          <div class="section-heading">
+            <p class="eyebrow">Quickstart</p>
+            <h2>Fastest way to evaluate it</h2>
+          </div>
+          <p class="section-copy">
+            The easiest way to judge fit is to run the self-hosted stack, point a backend at it, and see whether the basic HTTP backend path and state visibility match your expectations.
+          </p>
+        </div>
+        <div class="code-card">
+          <pre><code>cp .env.example .env
+docker-compose up --build -d
+
+# then configure backend "http"
+terraform init
+terraform apply</code></pre>
+          <p class="code-note">For the fuller operator-oriented setup, use the self-hosted bootstrap runbook.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="docs" class="section section-docs">
+      <div class="wrap">
+        <div class="section-heading">
+          <p class="eyebrow">Docs</p>
+          <h2>Where to go next</h2>
+        </div>
+
+        <div class="docs-grid">
+          <a class="doc-card" href="https://github.com/kilolockio/kilolock/blob/main/README.md">
+            <strong>README</strong>
+            <span>Quickstart, examples, and current project overview.</span>
+          </a>
+          <a class="doc-card" href="./runbooks/self-hosted-bootstrap.md">
+            <strong>Self-hosted bootstrap</strong>
+            <span>Primary setup path for the fuller self-hosted installation.</span>
+          </a>
+          <a class="doc-card" href="./terraform-compatibility.md">
+            <strong>Terraform compatibility</strong>
+            <span>Notes about backend behavior and compatibility expectations.</span>
+          </a>
+          <a class="doc-card" href="./runbooks/resource-level-emergency-repair.md">
+            <strong>Repair workflows</strong>
+            <span>How targeted history and repair flows work in practice.</span>
+          </a>
+          <a class="doc-card" href="./adr/0007-parallel-apply.md">
+            <strong>ADR 0007</strong>
+            <span>Design details for the reservation and parallel apply model.</span>
+          </a>
+          <a class="doc-card" href="https://kilolock.cloud">
+            <strong>Cloud page</strong>
+            <span>Commercial hosted entry point built on top of the same project story.</span>
+          </a>
+        </div>
       </div>
     </section>
   </main>
 </body>
-
 </html>
