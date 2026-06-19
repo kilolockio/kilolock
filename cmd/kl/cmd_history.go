@@ -11,7 +11,6 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/kilolockio/kilolock/internal/plan"
 	"github.com/kilolockio/kilolock/pkg/store"
 )
 
@@ -37,6 +36,7 @@ func runHistory(args []string) int {
 		offset = fs.Int("offset", 0, "Skip the N most-recent versions (for pagination).")
 		format = fs.String("format", "table", "Output format: table|json")
 	)
+	adminFlags := registerAdminClientFlags(fs, true)
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, "kl history:", err)
 		fmt.Fprint(os.Stderr, historyUsage)
@@ -48,7 +48,7 @@ func runHistory(args []string) int {
 		return 2
 	}
 
-	stateName, _, err := resolveStateName(fs.Arg(0))
+	target, _, err := adminFlags.resolveStateTarget(fs.Arg(0), ".")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kl history:", err)
 		fmt.Fprint(os.Stderr, historyUsage)
@@ -57,16 +57,17 @@ func runHistory(args []string) int {
 
 	ctx, cancel := context.WithTimeout(cliContext(), defaultTimeout)
 	defer cancel()
-	client, err := newAPIClient()
+	client, err := adminFlags.newClient(".")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kl history:", err)
 		return 1
 	}
+	stateName := target.StateName
 	var resp struct {
 		State    string                   `json:"state"`
 		Versions []store.StateVersionInfo `json:"versions"`
 	}
-	path := fmt.Sprintf("/admin/states/%s/history?limit=%d&offset=%d", stateName, *limit, *offset)
+	path := fmt.Sprintf("/admin/state/history?state_name=%s&limit=%d&offset=%d", queryEscape(stateName), *limit, *offset)
 	if err := client.getJSON(ctx, path, &resp); err != nil {
 		fmt.Fprintln(os.Stderr, "kl history:", err)
 		return 1
@@ -94,13 +95,18 @@ or deletes a previous version. Use the resulting ` + "`serial`" + ` or version
 UUID as the --to= argument to ` + "`kl rollback`" + `.
 
 Positional:
-  state                 State name (default: auto-detected from the
-                        http backend address of the CWD).
+  state                 State name or full state URL. If omitted,
+                        KL_STATE_URL takes precedence; otherwise kl
+                        auto-detects the current Terraform HTTP backend.
 
 Flags:
   --limit=N             Max rows to show (default 20; 0 for unlimited).
   --offset=N            Skip the N most-recent versions (pagination).
   --format=FMT          table | json (default table).
+  --state-url=URL       Full state URL. Overrides KL_STATE_URL and
+                        backend auto-discovery.
+  --token=TOKEN         Bearer token for cloud/admin API auth.
+                        Overrides KL_TOKEN.
 
 Exit status:
   0  one or more versions printed
@@ -214,24 +220,6 @@ func renderHistoryJSON(w io.Writer, stateName string, versions []store.StateVers
 		return 1
 	}
 	return 0
-}
-
-// resolveStateName implements the engineer-friendly default:
-// positional argument wins; otherwise discover from the http
-// backend address of the CWD; otherwise return a clear error so
-// the user knows to either `cd` into a module or pass the name.
-// The bool return signals whether the name came from auto-discovery
-// (true) — callers print a courtesy line so the operator sees what
-// got picked.
-func resolveStateName(positional string) (name string, discovered bool, err error) {
-	if positional != "" {
-		return positional, false, nil
-	}
-	bi, err := plan.DiscoverBackend(".")
-	if err != nil {
-		return "", false, fmt.Errorf("--state name required (no positional argument and no http backend discovered in CWD: %v)", err)
-	}
-	return bi.StateName, true, nil
 }
 
 // ---------------------------------------------------------------------------

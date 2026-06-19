@@ -190,6 +190,45 @@ terraform {
 	}
 }
 
+func TestDiscoverBackendConfig_HTTP(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "backend.tf"), []byte(`
+terraform {
+  backend "http" {
+    address  = "https://api.kilolock.cloud/states/ws_123/env_456/demo"
+    username = "cfg-user"
+    password = "cfg-pass"
+  }
+}
+`), 0o644); err != nil {
+		t.Fatalf("write backend.tf: %v", err)
+	}
+	got, err := DiscoverBackendConfig(dir)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if got.Address != "https://api.kilolock.cloud/states/ws_123/env_456/demo" {
+		t.Errorf("Address = %q", got.Address)
+	}
+	if got.StateName != "ws_123/env_456/demo" {
+		t.Errorf("StateName = %q", got.StateName)
+	}
+	if got.Username != "cfg-user" || got.Password != "cfg-pass" {
+		t.Errorf("auth = %q/%q", got.Username, got.Password)
+	}
+}
+
+func TestDiscoverBackendConfig_MissingBackendBlock(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "main.tf"), []byte(`resource "null_resource" "x" {}`), 0o644); err != nil {
+		t.Fatalf("write main.tf: %v", err)
+	}
+	_, err := DiscoverBackendConfig(dir)
+	if !errors.Is(err, ErrNoBackendConfigured) {
+		t.Errorf("got %v, want ErrNoBackendConfigured", err)
+	}
+}
+
 func TestDiscoverBackend_UnsupportedType(t *testing.T) {
 	dir := writeInitFixture(t, initStateS3)
 	_, err := DiscoverBackend(dir)

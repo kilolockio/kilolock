@@ -40,6 +40,7 @@ func runQuery(args []string) int {
 	file := fs.String("f", "", `read SQL from file ("-" for stdin)`)
 	format := fs.String("format", "table", "output format: table | json | csv")
 	timeout := fs.Duration("timeout", 30*time.Second, "statement timeout (e.g. 5s, 1m)")
+	adminFlags := registerAdminClientFlags(fs, true)
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), `Usage: kl query [flags] [SQL]
 
@@ -68,6 +69,14 @@ Examples:
 Flags:
 `)
 		fs.PrintDefaults()
+		fmt.Fprintf(fs.Output(), `
+State / auth precedence:
+  --state-url=URL       Full state URL. Overrides KL_STATE_URL and backend discovery.
+  --token=TOKEN         Bearer token for cloud/admin API auth. Use kl_... for automation.
+                        klp_... PATs can work for environment-scoped admin query when
+                        --state-url or KL_STATE_URL supplies the selected state scope.
+                        TF_HTTP_PASSWORD remains backend auth.
+`)
 	}
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -91,7 +100,7 @@ Flags:
 	// context deadline canceling the connection.
 	ctx, cancel := context.WithTimeout(cliContext(), *timeout+5*time.Second)
 	defer cancel()
-	client, err := newAPIClient()
+	client, err := adminFlags.newClient(".")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kl query:", err)
 		return 1

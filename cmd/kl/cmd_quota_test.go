@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -46,5 +48,33 @@ func TestQuotaPreviewExitCode_WarnsOnSoftFailsOnHard(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "quota hard limit exceeded") {
 		t.Fatalf("hard exceed output = %q", stderr.String())
+	}
+}
+
+func TestQuotaClientAndState_UsesLiveBackendConfig(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "backend.tf"), []byte(`
+terraform {
+  backend "http" {
+    address = "https://api.kilolock.cloud/states/ws_123/env_456/demo"
+  }
+}
+`), 0o644); err != nil {
+		t.Fatalf("write backend.tf: %v", err)
+	}
+
+	t.Setenv("TF_HTTP_PASSWORD", "env-pass")
+	stateName, client, err := quotaClientAndState(dir, "")
+	if err != nil {
+		t.Fatalf("quotaClientAndState: %v", err)
+	}
+	if stateName != "ws_123/env_456/demo" {
+		t.Fatalf("stateName=%q want ws_123/env_456/demo", stateName)
+	}
+	if client.baseURL != "https://api.kilolock.cloud" {
+		t.Fatalf("baseURL=%q want https://api.kilolock.cloud", client.baseURL)
+	}
+	if client.password != "env-pass" {
+		t.Fatalf("password=%q want env-pass", client.password)
 	}
 }

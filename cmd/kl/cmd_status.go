@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"sort"
 	"text/tabwriter"
@@ -47,6 +48,7 @@ func runStatus(args []string) int {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	format := fs.String("format", "table", "Output format: table|json")
+	adminFlags := registerAdminClientFlags(fs, true)
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, "kl status:", err)
 		fmt.Fprint(os.Stderr, statusUsage)
@@ -58,7 +60,7 @@ func runStatus(args []string) int {
 		return 2
 	}
 
-	stateName, _, err := resolveStateName(fs.Arg(0))
+	target, _, err := adminFlags.resolveStateTarget(fs.Arg(0), ".")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kl status:", err)
 		fmt.Fprint(os.Stderr, statusUsage)
@@ -67,13 +69,14 @@ func runStatus(args []string) int {
 
 	ctx, cancel := context.WithTimeout(cliContext(), defaultTimeout)
 	defer cancel()
-	client, err := newAPIClient()
+	client, err := adminFlags.newClient(".")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kl status:", err)
 		return 1
 	}
 	var status store.StateStatus
-	if err := client.getJSON(ctx, "/admin/states/"+stateName+"/status", &status); err != nil {
+	path := "/admin/state/status?state_name=" + url.QueryEscape(target.StateName)
+	if err := client.getJSON(ctx, path, &status); err != nil {
 		fmt.Fprintln(os.Stderr, "kl status:", err)
 		return 1
 	}
@@ -320,9 +323,14 @@ runs, and currently-held resource reservations. Designed to answer
 "is my apply hanging, or just slow?" without writing SQL.
 
 Positional:
-  state                 State name (default: auto-detected from the
-                        http backend address of the CWD).
+  state                 State name or full state URL. If omitted,
+                        KL_STATE_URL takes precedence; otherwise kl
+                        auto-detects the current Terraform HTTP backend.
 
 Flags:
   --format=FMT          Output format: table (default) or json.
+  --state-url=URL       Full state URL. Overrides KL_STATE_URL and
+                        backend auto-discovery.
+  --token=TOKEN         Bearer token for cloud/admin API auth.
+                        Overrides KL_TOKEN.
 `

@@ -139,7 +139,7 @@ func runQuotaCheck(args []string) int {
 func quotaClientAndState(configDir, stateFlag string) (string, *apiClient, error) {
 	stateName := strings.TrimSpace(stateFlag)
 	if stateName == "" {
-		bi, err := plan.DiscoverBackend(configDir)
+		bi, err := discoverLiveBackend(configDir)
 		if err != nil {
 			return "", nil, fmt.Errorf("discover backend state: %w", err)
 		}

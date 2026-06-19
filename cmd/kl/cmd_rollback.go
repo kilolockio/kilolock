@@ -54,6 +54,7 @@ func runRollback(args []string) int {
 		yes   = fs.Bool("yes", false, "Skip the interactive confirmation prompt (use in CI). Ignored in dry-run mode.")
 		actor = fs.String("actor", "", "Override the actor recorded on the new state_version (default: $USER@cli).")
 	)
+	adminFlags := registerAdminClientFlags(fs, true)
 	fs.BoolVar(yes, "y", false, "Alias for --yes.")
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, "kl rollback:", err)
@@ -71,7 +72,7 @@ func runRollback(args []string) int {
 		return 2
 	}
 
-	stateName, _, err := resolveStateName(fs.Arg(0))
+	stateTarget, _, err := adminFlags.resolveStateTarget(fs.Arg(0), ".")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kl rollback:", err)
 		fmt.Fprint(os.Stderr, rollbackUsage)
@@ -80,11 +81,12 @@ func runRollback(args []string) int {
 
 	ctx, cancel := context.WithTimeout(cliContext(), 5*time.Minute)
 	defer cancel()
-	client, err := newAPIClient()
+	client, err := adminFlags.newClient(".")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kl rollback:", err)
 		return 1
 	}
+	stateName := stateTarget.StateName
 
 	// Resolve the current head + the rollback target up-front so the
 	// dry-run output is fully populated without any writes.
@@ -176,8 +178,9 @@ DRY-RUN BY DEFAULT. The command will show what would change and
 exit 0 without writing. Pass --apply to perform the rollback.
 
 Positional:
-  state                 State name (default: auto-detected from the
-                        http backend address of the CWD).
+  state                 State name or full state URL. If omitted,
+                        KL_STATE_URL takes precedence; otherwise kl
+                        auto-detects the current Terraform HTTP backend.
 
 Required:
   --to=<ref>            Target version. Accepted shapes:
@@ -196,6 +199,10 @@ Flags:
   --yes, -y             Skip interactive confirmation (CI mode).
   --actor=NAME          Override the actor recorded in state_versions.
                         Default: $USER@cli.
+  --state-url=URL       Full state URL. Overrides KL_STATE_URL and
+                        backend auto-discovery.
+  --token=TOKEN         Bearer token for cloud/admin API auth.
+                        Overrides KL_TOKEN.
 
 WARNING:
   Rolling back the state rewinds kl's bookkeeping; it does

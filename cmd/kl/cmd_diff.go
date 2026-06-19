@@ -54,6 +54,7 @@ func runDiff(args []string) int {
 		limit   = fs.Int("limit", 0, "Cap the number of resources rendered (0 = no cap). Applied AFTER --address filtering.")
 		summary = fs.Bool("summary", false, "Print only the address-level summary (added/removed/changed counts and names) without attribute leaves.")
 	)
+	adminFlags := registerAdminClientFlags(fs, true)
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, "kl diff:", err)
 		fmt.Fprint(os.Stderr, diffUsage)
@@ -64,7 +65,7 @@ func runDiff(args []string) int {
 		fmt.Fprint(os.Stderr, diffUsage)
 		return 2
 	}
-	stateName, _, err := resolveStateName(fs.Arg(0))
+	target, _, err := adminFlags.resolveStateTarget(fs.Arg(0), ".")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kl diff:", err)
 		fmt.Fprint(os.Stderr, diffUsage)
@@ -73,19 +74,20 @@ func runDiff(args []string) int {
 
 	ctx, cancel := context.WithTimeout(cliContext(), defaultTimeout)
 	defer cancel()
-	client, err := newAPIClient()
+	client, err := adminFlags.newClient(".")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kl diff:", err)
 		return 1
 	}
+	stateName := target.StateName
 	var resp struct {
 		State string                    `json:"state"`
 		From  store.StateVersionInfo    `json:"from"`
 		To    store.StateVersionInfo    `json:"to"`
 		Rows  []store.ResourceAttrDelta `json:"rows"`
 	}
-	path := fmt.Sprintf("/admin/states/%s/diff?from=%s&to=%s",
-		stateName, url.QueryEscape(*from), url.QueryEscape(*to))
+	path := fmt.Sprintf("/admin/state/diff?state_name=%s&from=%s&to=%s",
+		queryEscape(stateName), url.QueryEscape(*from), url.QueryEscape(*to))
 	if err := client.getJSON(ctx, path, &resp); err != nil {
 		fmt.Fprintln(os.Stderr, "kl diff:", err)
 		return 1
@@ -562,14 +564,19 @@ result in one of three formats.
 By default diffs the previous version (@1) against the current one.
 
 Positional:
-  state                 State name (default: auto-detected from the
-                        http backend address of the CWD).
+  state                 State name or full state URL. If omitted,
+                        KL_STATE_URL takes precedence; otherwise kl
+                        auto-detects the current Terraform HTTP backend.
 
 Flags:
   --from=REF            Source version. Accepts <serial>, @<N>, <uuid>,
                         or 'current'. Default: @1 (one back).
   --to=REF              Target version. Same shapes. Default: current.
   --format=FMT          table (default), unified, or json.
+  --state-url=URL       Full state URL. Overrides KL_STATE_URL and
+                        backend auto-discovery.
+  --token=TOKEN         Bearer token for cloud/admin API auth.
+                        Overrides KL_TOKEN.
   --address=GLOB        Filter resources by glob (e.g. 'aws_instance.*'
                         or '*.module.foo.*').
   --limit=N             Cap the number of resources rendered (after

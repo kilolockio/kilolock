@@ -181,6 +181,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/admin/states/{name}/history", s.withAuth(http.HandlerFunc(s.handleAdminStateHistory)))
 	mux.Handle("/admin/states/{name}/status", s.withAuth(http.HandlerFunc(s.handleAdminStateStatus)))
 	mux.Handle("/admin/states/{name}/diff", s.withAuth(http.HandlerFunc(s.handleAdminStateDiff)))
+	mux.Handle("/admin/state/history", s.withAuth(http.HandlerFunc(s.handleAdminStateHistoryQuery)))
+	mux.Handle("/admin/state/diff", s.withAuth(http.HandlerFunc(s.handleAdminStateDiffQuery)))
 	mux.Handle("/admin/state/status", s.withAuth(http.HandlerFunc(s.handleAdminStateStatusQuery)))
 	mux.Handle("/admin/state/current", s.withAuth(http.HandlerFunc(s.handleAdminStateCurrent)))
 	mux.Handle("/admin/state/raw", s.withAuth(http.HandlerFunc(s.handleAdminStateRawAtSerial)))
@@ -514,6 +516,24 @@ func (s *Server) handleAdminStateHistory(w http.ResponseWriter, r *http.Request)
 		writeJSONError(w, http.StatusBadRequest, "state name is required")
 		return
 	}
+	s.handleAdminStateHistoryNamed(w, r, name)
+}
+
+func (s *Server) handleAdminStateHistoryQuery(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", "GET")
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	name := adminStateName(r)
+	if name == "" {
+		writeJSONError(w, http.StatusBadRequest, "state name is required")
+		return
+	}
+	s.handleAdminStateHistoryNamed(w, r, name)
+}
+
+func (s *Server) handleAdminStateHistoryNamed(w http.ResponseWriter, r *http.Request, name string) {
 	limit, err := parseOptionalInt(r.URL.Query().Get("limit"), 20)
 	if err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid limit")
@@ -561,7 +581,7 @@ func (s *Server) handleAdminStateStatus(w http.ResponseWriter, r *http.Request) 
 		writeJSONError(w, http.StatusServiceUnavailable, "environment unavailable")
 		return
 	}
-	status, err := st.GetStateStatus(r.Context(), name)
+	status, err := s.getStateStatusForRequest(r.Context(), st, name)
 	if errors.Is(err, store.ErrStateNotFound) {
 		writeJSONError(w, http.StatusNotFound, "state not found")
 		return
@@ -590,7 +610,7 @@ func (s *Server) handleAdminStateStatusQuery(w http.ResponseWriter, r *http.Requ
 		writeJSONError(w, http.StatusServiceUnavailable, "environment unavailable")
 		return
 	}
-	status, err := st.GetStateStatus(r.Context(), name)
+	status, err := s.getStateStatusForRequest(r.Context(), st, name)
 	if errors.Is(err, store.ErrStateNotFound) {
 		writeJSONError(w, http.StatusNotFound, "state not found")
 		return
@@ -600,6 +620,43 @@ func (s *Server) handleAdminStateStatusQuery(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	writeJSON(w, http.StatusOK, status)
+}
+
+func (s *Server) getStateStatusForRequest(ctx context.Context, st *store.Store, name string) (*store.StateStatus, error) {
+	status, err := st.GetStateStatus(ctx, name)
+	if !errors.Is(err, store.ErrStateNotFound) {
+		return status, err
+	}
+	localName := maybeStripEnvironmentStateScope(ctx, name)
+	if localName == name {
+		return nil, err
+	}
+	return st.GetStateStatus(ctx, localName)
+}
+
+func maybeStripEnvironmentStateScope(ctx context.Context, name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	p, ok := auth.FromContext(ctx)
+	if !ok {
+		return name
+	}
+	workspaceID := strings.TrimSpace(p.WorkspaceID)
+	envPublicID := strings.TrimSpace(p.EnvironmentPublicID)
+	if workspaceID == "" || envPublicID == "" {
+		return name
+	}
+	prefix := workspaceID + "/" + envPublicID + "/"
+	if !strings.HasPrefix(name, prefix) {
+		return name
+	}
+	trimmed := strings.TrimSpace(strings.TrimPrefix(name, prefix))
+	if trimmed == "" {
+		return name
+	}
+	return trimmed
 }
 
 func (s *Server) handleAdminStateDiff(w http.ResponseWriter, r *http.Request) {
@@ -613,6 +670,24 @@ func (s *Server) handleAdminStateDiff(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "state name is required")
 		return
 	}
+	s.handleAdminStateDiffNamed(w, r, name)
+}
+
+func (s *Server) handleAdminStateDiffQuery(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", "GET")
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	name := adminStateName(r)
+	if name == "" {
+		writeJSONError(w, http.StatusBadRequest, "state name is required")
+		return
+	}
+	s.handleAdminStateDiffNamed(w, r, name)
+}
+
+func (s *Server) handleAdminStateDiffNamed(w http.ResponseWriter, r *http.Request, name string) {
 	fromRef := strings.TrimSpace(r.URL.Query().Get("from"))
 	if fromRef == "" {
 		fromRef = "@1"

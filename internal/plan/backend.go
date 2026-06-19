@@ -137,9 +137,37 @@ func DiscoverBackend(configDir string) (*BackendInfo, error) {
 
 var (
 	httpBackendBlockPattern = regexp.MustCompile(`(?s)backend\s+"http"\s*\{.*?\}`)
+	backendAddressPattern   = regexp.MustCompile(`(?m)^\s*address\s*=\s*"([^"\n]*)"`)
 	backendUsernamePattern  = regexp.MustCompile(`(?m)^\s*username\s*=\s*"([^"\n]*)"`)
 	backendPasswordPattern  = regexp.MustCompile(`(?m)^\s*password\s*=\s*"([^"\n]*)"`)
 )
+
+// DiscoverBackendConfig reads the live Terraform configuration in configDir
+// and resolves the declared HTTP backend directly from *.tf files instead of
+// Terraform's cached init metadata. This is a better fit for kl admin/read
+// commands where stale .terraform metadata should not silently keep working
+// after the backend block was removed or changed.
+func DiscoverBackendConfig(configDir string) (*BackendInfo, error) {
+	address, username, password, found := discoverBackendHTTPConfigFromConfigDir(configDir)
+	if !found {
+		return nil, fmt.Errorf("%w: no http backend block found in %s", ErrNoBackendConfigured, configDir)
+	}
+	address = strings.TrimSpace(address)
+	if address == "" {
+		return nil, fmt.Errorf("%w: http backend address is empty in %s", ErrNoBackendConfigured, configDir)
+	}
+	name, err := stateNameFromAddress(address)
+	if err != nil {
+		return nil, fmt.Errorf("derive state name from %q: %w", address, err)
+	}
+	return &BackendInfo{
+		Type:      "http",
+		Address:   address,
+		StateName: name,
+		Username:  strings.TrimSpace(username),
+		Password:  strings.TrimSpace(password),
+	}, nil
+}
 
 func populateBackendAuthFallback(configDir string, bi *BackendInfo) error {
 	if bi == nil {
@@ -159,9 +187,14 @@ func populateBackendAuthFallback(configDir string, bi *BackendInfo) error {
 }
 
 func discoverBackendHTTPAuthFromConfigDir(configDir string) (username, password string) {
+	_, username, password, _ = discoverBackendHTTPConfigFromConfigDir(configDir)
+	return username, password
+}
+
+func discoverBackendHTTPConfigFromConfigDir(configDir string) (address, username, password string, found bool) {
 	entries, err := os.ReadDir(configDir)
 	if err != nil {
-		return "", ""
+		return "", "", "", false
 	}
 	for _, entry := range entries {
 		if entry.IsDir() {
@@ -179,6 +212,12 @@ func discoverBackendHTTPAuthFromConfigDir(configDir string) (username, password 
 		if len(block) == 0 {
 			continue
 		}
+		found = true
+		if address == "" {
+			if match := backendAddressPattern.FindSubmatch(block); len(match) == 2 {
+				address = string(match[1])
+			}
+		}
 		if username == "" {
 			if match := backendUsernamePattern.FindSubmatch(block); len(match) == 2 {
 				username = string(match[1])
@@ -189,11 +228,11 @@ func discoverBackendHTTPAuthFromConfigDir(configDir string) (username, password 
 				password = string(match[1])
 			}
 		}
-		if username != "" && password != "" {
-			return username, password
+		if address != "" && username != "" && password != "" {
+			return address, username, password, true
 		}
 	}
-	return username, password
+	return address, username, password, found
 }
 
 func stringConfig(m map[string]any, key string) string {

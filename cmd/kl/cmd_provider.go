@@ -64,6 +64,7 @@ Source addresses follow Terraform's required_providers format:
 
 Flags common to most actions:
   --alias=NAME      Provider alias (empty = default unaliased config).
+  --token=TOKEN     Bearer token for cloud/admin API auth. Overrides KL_TOKEN.
 `
 
 // --- configure -------------------------------------------------------------
@@ -74,6 +75,7 @@ func runProviderConfigure(args []string) int {
 		alias    = fs.String("alias", "", "Provider alias (empty = default).")
 		fromJSON = fs.String("from-json", "", "Path to a JSON file containing the config. Use '-' or omit for stdin.")
 	)
+	adminFlags := registerAdminClientFlags(fs, false)
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -97,7 +99,7 @@ func runProviderConfigure(args []string) int {
 	logger := newLogger(icfg.LogFormat, icfg.LogLevel)
 	ctx, cancel := context.WithTimeout(cliContext(), defaultTimeout)
 	defer cancel()
-	client, err := newAPIClient()
+	client, err := adminFlags.newClient(".")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "kl provider configure: %v\n", err)
 		return 1
@@ -173,6 +175,7 @@ func decodeConfigJSON(data []byte) (map[string]any, error) {
 func runProviderGet(args []string) int {
 	fs := flag.NewFlagSet("provider get", flag.ContinueOnError)
 	alias := fs.String("alias", "", "Provider alias (empty = default).")
+	adminFlags := registerAdminClientFlags(fs, false)
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -190,7 +193,7 @@ func runProviderGet(args []string) int {
 	logger := newLogger(icfg.LogFormat, icfg.LogLevel)
 	ctx, cancel := context.WithTimeout(cliContext(), defaultTimeout)
 	defer cancel()
-	client, err := newAPIClient()
+	client, err := adminFlags.newClient(".")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "kl provider get: %v\n", err)
 		return 1
@@ -221,6 +224,7 @@ func runProviderGet(args []string) int {
 
 func runProviderList(args []string) int {
 	fs := flag.NewFlagSet("provider list", flag.ContinueOnError)
+	adminFlags := registerAdminClientFlags(fs, false)
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -229,7 +233,7 @@ func runProviderList(args []string) int {
 	logger := newLogger(icfg.LogFormat, icfg.LogLevel)
 	ctx, cancel := context.WithTimeout(cliContext(), defaultTimeout)
 	defer cancel()
-	client, err := newAPIClient()
+	client, err := adminFlags.newClient(".")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "kl provider list: %v\n", err)
 		return 1
@@ -287,6 +291,7 @@ func summarizeAttrs(cfg map[string]any) string {
 func runProviderRemove(args []string) int {
 	fs := flag.NewFlagSet("provider remove", flag.ContinueOnError)
 	alias := fs.String("alias", "", "Provider alias (empty = default).")
+	adminFlags := registerAdminClientFlags(fs, false)
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -304,7 +309,7 @@ func runProviderRemove(args []string) int {
 	logger := newLogger(icfg.LogFormat, icfg.LogLevel)
 	ctx, cancel := context.WithTimeout(cliContext(), defaultTimeout)
 	defer cancel()
-	client, err := newAPIClient()
+	client, err := adminFlags.newClient(".")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "kl provider remove: %v\n", err)
 		return 1

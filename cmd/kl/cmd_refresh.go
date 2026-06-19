@@ -41,6 +41,7 @@ func runRefresh(args []string) int {
 		dryRun      = fs.Bool("dry-run", false, "Compute drift but do not write a new state version.")
 		actor       = fs.String("actor", "", "Actor string for the audit log (default: derived from $USER).")
 	)
+	adminFlags := registerAdminClientFlags(fs, true)
 	var searchPaths multiString
 	fs.Var(&searchPaths, "provider-search-path", "Provider binary search path (repeatable; or set KL_PROVIDER_PATH=p1:p2).")
 
@@ -58,7 +59,13 @@ func runRefresh(args []string) int {
 		fmt.Fprintf(os.Stderr, "kl refresh: unexpected extra arguments: %v\n", fs.Args()[1:])
 		return 2
 	}
-	stateName := fs.Arg(0)
+	target, _, err := adminFlags.resolveStateTarget(fs.Arg(0), ".")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "kl refresh:", err)
+		fmt.Fprint(os.Stderr, refreshUsage)
+		return 2
+	}
+	stateName := target.StateName
 
 	resolved, err := resolveSearchPaths(searchPaths, os.Getenv("KL_PROVIDER_PATH"))
 	if err != nil {
@@ -70,7 +77,7 @@ func runRefresh(args []string) int {
 	defer sigCancel()
 	ctx, cancel := context.WithTimeout(sigCtx, refreshTimeout)
 	defer cancel()
-	client, err := newAPIClient()
+	client, err := adminFlags.newClient(".")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kl refresh:", err)
 		return 1
@@ -157,11 +164,18 @@ func runRefresh(args []string) int {
 const refreshUsage = `Usage:
   kl refresh <state-name> [flags]
 
+State selection:
+  <state-name>                State name or full state URL.
+  --state-url=URL             Full state URL. Overrides KL_STATE_URL and
+                              backend auto-discovery.
+
 Flags:
   --fail-fast                  Stop on first per-resource error.
   --concurrency=N              Max parallel provider groups (default: NumCPU).
   --dry-run                    Compute drift but do not write a new state version.
   --actor=NAME                 Actor string for the audit log.
+  --token=TOKEN                Bearer token for cloud/admin API auth.
+                               Overrides KL_TOKEN.
   --provider-search-path=DIR   Provider binary search path. Repeatable; falls
                                back to KL_PROVIDER_PATH (colon-separated)
                                and then a default set including ~/.terraform.d/

@@ -10,13 +10,14 @@ import (
 
 func runList(args []string) int {
 	fs := flag.NewFlagSet("list", flag.ContinueOnError)
+	adminFlags := registerAdminClientFlags(fs, false)
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 
 	ctx, cancel := context.WithTimeout(cliContext(), defaultTimeout)
 	defer cancel()
-	client, err := newAPIClient()
+	client, err := adminFlags.newClient(".")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kl list:", err)
 		return 1

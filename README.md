@@ -20,6 +20,17 @@ Terraform must be installed on the machine where you run the examples and CLI
 workflows in this repo. Kilolock wraps Terraform-compatible workflows; it does
 not replace the Terraform CLI itself.
 
+Build the Kilolock binaries before using the CLI examples:
+
+```sh
+make build
+export PATH="$(pwd)/bin:$PATH"
+```
+
+That puts `kl`, `kld`, and `klc` on your shell `PATH` for the current repo
+checkout. If you prefer a system-wide install, copy the binaries from `./bin/`
+into a directory that is already on your `PATH`.
+
 ## Quick Start
 
 ### Fastest local stack
@@ -71,21 +82,19 @@ terraform {
   backend "http" {
     address        = "http://localhost:8080/states/example"
     lock_address   = "http://localhost:8080/states/example"
-    unlock_address = "http://localhost:8080/state-unlock/example"
+    unlock_address = "http://localhost:8080/states/example"
     lock_method    = "LOCK"
-    unlock_method  = "POST"
+    unlock_method  = "UNLOCK"
   }
 }
 ```
 
-For the default OSS quick-start and local `docker-compose`, keep this shape as-is:
+For the default OSS quick-start and local `docker-compose`, use the standard
+Terraform HTTP backend lock flow:
 
 - `lock_method = "LOCK"`
-- `unlock_method = "POST"`
-- `unlock_address = ".../state-unlock/..."`
-
-That local stack already supports the cloud-compatible unlock route, so there is
-no need to maintain a separate local-only backend pattern.
+- `unlock_method = "UNLOCK"`
+- `unlock_address = ".../states/..."`
 
 Then:
 
@@ -97,17 +106,17 @@ terraform apply
 ### 2. Query what Terraform wrote
 
 ```sh
-./bin/kl query "SELECT type, COUNT(*) FROM resources GROUP BY type ORDER BY 2 DESC"
-./bin/kl query -f docs/queries/inventory_by_type.sql --format csv
-./bin/kl query resource --address time_sleep.slow_a
-./bin/kl query history --address time_sleep.slow_a
+kl query "SELECT type, COUNT(*) FROM resources GROUP BY type ORDER BY 2 DESC"
+kl query -f docs/queries/inventory_by_type.sql --format csv
+kl query resource --address time_sleep.slow_a
+kl query history --address time_sleep.slow_a
 ```
 
 ### 3. Use file-scoped planning/apply
 
 ```sh
-./bin/kl plan -f slow_a.tf -o slow-a.plan.json
-./bin/kl apply -f slow_a.tf --confirm-scope
+kl plan -f slow_a.tf -o slow-a.plan.json
+kl apply -f slow_a.tf --confirm-scope
 ```
 
 Useful notes:
@@ -121,9 +130,9 @@ Useful notes:
 ### 4. Check quota headroom before apply
 
 ```sh
-./bin/kl quota remaining
+kl quota remaining
 terraform plan -out=plan.tfplan
-./bin/kl quota check --tf-plan plan.tfplan
+kl quota check --tf-plan plan.tfplan
 ```
 
 Useful notes:
@@ -133,21 +142,25 @@ Useful notes:
 - soft limit breaches return success with a warning
 - hard limit breaches return a non-zero exit code before `kl apply`
 
-### 5. Refresh without paying full Terraform refresh every time
+### 5. Refresh state without a full Terraform plan cycle
 
 ```sh
-./bin/kl refresh example --dry-run
-./bin/kl refresh example
-./bin/kl query -f docs/queries/drift_current.sql --format json
+kl refresh example --dry-run
+kl refresh example
+kl query -f docs/queries/drift_current.sql --format json
 ```
+
+This refresh path still talks to providers, but it avoids rerunning the full
+Terraform config/plan flow when you mainly want updated backend state and drift
+visibility.
 
 ### 6. Inspect, repair, or roll back
 
 ```sh
-./bin/kl status example
-./bin/kl history example
-./bin/kl rollback resource --address time_sleep.slow_a --to @1
-./bin/kl apply abort --state example --latest
+kl status example
+kl history example
+kl rollback resource --address time_sleep.slow_a --to @1
+kl apply abort --state example --latest
 ```
 
 Runbook for stuck applies:
@@ -216,7 +229,7 @@ This produces:
 ```sh
 make db-up
 cp .kl.toml.example .kl.toml
-./bin/kld
+kld
 ```
 
 Environment variables such as `KL_DATABASE_URL` and `DATABASE_URL` override

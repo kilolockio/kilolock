@@ -24,6 +24,7 @@ func runRollbackResource(args []string) int {
 		timeout = fs.Duration("timeout", resourceQueryTimeout, "Request timeout for preview/apply (e.g. 30s, 2m).")
 		yes     = fs.Bool("yes", false, "Skip interactive confirmation.")
 	)
+	adminFlags := registerAdminClientFlags(fs, true)
 	fs.BoolVar(yes, "y", false, "Alias for --yes.")
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, "kl rollback resource:", err)
@@ -37,16 +38,17 @@ func runRollbackResource(args []string) int {
 		fmt.Fprintln(os.Stderr, "kl rollback resource: --address and --to are required")
 		return 2
 	}
-	stateName, _, err := resolveStateName(fs.Arg(0))
+	stateTarget, _, err := adminFlags.resolveStateTarget(fs.Arg(0), ".")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kl rollback resource:", err)
 		return 2
 	}
-	client, err := newAPIClient()
+	client, err := adminFlags.newClient(".")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kl rollback resource:", err)
 		return 1
 	}
+	stateName := stateTarget.StateName
 	ctx, cancel := context.WithTimeout(cliContext(), *timeout)
 	defer cancel()
 	var preview store.ResourceRollbackPreview

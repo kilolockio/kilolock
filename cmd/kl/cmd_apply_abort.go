@@ -23,6 +23,7 @@ func runApplyAbort(args []string) int {
 		reason  = fs.String("reason", "aborted by operator", "Audit reason recorded on the apply run.")
 		latest  = fs.Bool("latest", false, "When using --state, abort the most recent running apply.")
 	)
+	adminFlags := registerAdminClientFlags(fs, true)
 
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, "kl apply abort:", err)
@@ -37,7 +38,7 @@ func runApplyAbort(args []string) int {
 
 	ctx, cancel := context.WithTimeout(cliContext(), defaultTimeout)
 	defer cancel()
-	client, err := newAPIClient()
+	client, err := adminFlags.newClient(".")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kl apply abort:", err)
 		return 1
@@ -47,6 +48,14 @@ func runApplyAbort(args []string) int {
 	if strings.TrimSpace(*applyID) != "" {
 		targetID = strings.TrimSpace(*applyID)
 	} else {
+		if stateURL := adminFlags.explicitStateURL(); stateURL != "" {
+			target, _, err := adminFlags.resolveStateTarget(stateURL, ".")
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "kl apply abort:", err)
+				return 2
+			}
+			*state = target.StateName
+		}
 		if strings.TrimSpace(*state) == "" || !*latest {
 			fmt.Fprintln(os.Stderr, "kl apply abort: provide --apply-id, or use --state with --latest")
 			fmt.Fprint(os.Stderr, applyAbortUsage)
@@ -54,7 +63,7 @@ func runApplyAbort(args []string) int {
 		}
 
 		var status store.StateStatus
-		if err := client.doJSON(ctx, "GET", "/admin/state/status?name="+queryEscape(strings.TrimSpace(*state)), strings.TrimSpace(*state), nil, &status); err != nil {
+		if err := client.doJSON(ctx, "GET", "/admin/state/status?state_name="+queryEscape(strings.TrimSpace(*state)), strings.TrimSpace(*state), nil, &status); err != nil {
 			fmt.Fprintln(os.Stderr, "kl apply abort:", err)
 			return 1
 		}
@@ -100,4 +109,10 @@ func runApplyAbort(args []string) int {
 const applyAbortUsage = `Usage:
   kl apply abort --apply-id <uuid> [--reason "..."]
   kl apply abort --state <name> --latest [--actor <actor>] [--reason "..."]
+
+Flags:
+  --state-url=URL       Full state URL. When provided, its state name
+                        overrides --state for state lookup.
+  --token=TOKEN         Bearer token for cloud/admin API auth.
+                        Overrides KL_TOKEN.
 `

@@ -23,6 +23,7 @@ func runQueryResources(args []string) int {
 		format      = fs.String("format", "table", "Output format: table|json.")
 		timeout     = fs.Duration("timeout", resourceQueryTimeout, "Request timeout (e.g. 30s, 2m).")
 	)
+	adminFlags := registerAdminClientFlags(fs, true)
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, "kl query resources:", err)
 		return 2
@@ -31,12 +32,12 @@ func runQueryResources(args []string) int {
 		fmt.Fprintln(os.Stderr, "kl query resources: too many positional arguments")
 		return 2
 	}
-	stateName, _, err := resolveStateName(fs.Arg(0))
+	target, _, err := adminFlags.resolveStateTarget(fs.Arg(0), ".")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kl query resources:", err)
 		return 2
 	}
-	client, err := newAPIClient()
+	client, err := adminFlags.newClient(".")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kl query resources:", err)
 		return 1
@@ -47,7 +48,7 @@ func runQueryResources(args []string) int {
 		State     string                   `json:"state"`
 		Resources []store.ResourceSnapshot `json:"resources"`
 	}
-	path := fmt.Sprintf("/admin/state/resources?name=%s&address_glob=%s&limit=%d", queryEscape(stateName), queryEscape(*addressGlob), *limit)
+	path := fmt.Sprintf("/admin/state/resources?name=%s&address_glob=%s&limit=%d", queryEscape(target.StateName), queryEscape(*addressGlob), *limit)
 	if err := client.getJSON(ctx, path, &resp); err != nil {
 		fmt.Fprintln(os.Stderr, "kl query resources:", err)
 		return 1
@@ -85,6 +86,7 @@ func runQueryResource(args []string) int {
 		format  = fs.String("format", "table", "Output format: table|json.")
 		timeout = fs.Duration("timeout", resourceQueryTimeout, "Request timeout (e.g. 30s, 2m).")
 	)
+	adminFlags := registerAdminClientFlags(fs, true)
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, "kl query resource:", err)
 		return 2
@@ -97,12 +99,12 @@ func runQueryResource(args []string) int {
 		fmt.Fprintln(os.Stderr, "kl query resource: --address is required")
 		return 2
 	}
-	stateName, _, err := resolveStateName(fs.Arg(0))
+	target, _, err := adminFlags.resolveStateTarget(fs.Arg(0), ".")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kl query resource:", err)
 		return 2
 	}
-	client, err := newAPIClient()
+	client, err := adminFlags.newClient(".")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kl query resource:", err)
 		return 1
@@ -113,7 +115,7 @@ func runQueryResource(args []string) int {
 		State    string                  `json:"state"`
 		Resource *store.ResourceSnapshot `json:"resource"`
 	}
-	path := fmt.Sprintf("/admin/state/resource?name=%s&address=%s", queryEscape(stateName), queryEscape(*address))
+	path := fmt.Sprintf("/admin/state/resource?name=%s&address=%s", queryEscape(target.StateName), queryEscape(*address))
 	if err := client.getJSON(ctx, path, &resp); err != nil {
 		fmt.Fprintln(os.Stderr, "kl query resource:", err)
 		return 1
@@ -172,6 +174,7 @@ func runQueryResourceHistory(args []string) int {
 		format  = fs.String("format", "table", "Output format: table|json.")
 		timeout = fs.Duration("timeout", resourceQueryTimeout, "Request timeout (e.g. 30s, 2m).")
 	)
+	adminFlags := registerAdminClientFlags(fs, true)
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, "kl query history:", err)
 		return 2
@@ -184,12 +187,12 @@ func runQueryResourceHistory(args []string) int {
 		fmt.Fprintln(os.Stderr, "kl query history: --address is required")
 		return 2
 	}
-	stateName, _, err := resolveStateName(fs.Arg(0))
+	target, _, err := adminFlags.resolveStateTarget(fs.Arg(0), ".")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kl query history:", err)
 		return 2
 	}
-	client, err := newAPIClient()
+	client, err := adminFlags.newClient(".")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kl query history:", err)
 		return 1
@@ -201,7 +204,7 @@ func runQueryResourceHistory(args []string) int {
 		Address string                       `json:"address"`
 		History []store.ResourceHistoryEntry `json:"history"`
 	}
-	path := fmt.Sprintf("/admin/state/resource-history?name=%s&address=%s&limit=%d", queryEscape(stateName), queryEscape(*address), *limit)
+	path := fmt.Sprintf("/admin/state/resource-history?name=%s&address=%s&limit=%d", queryEscape(target.StateName), queryEscape(*address), *limit)
 	if err := client.getJSON(ctx, path, &resp); err != nil {
 		fmt.Fprintln(os.Stderr, "kl query history:", err)
 		return 1

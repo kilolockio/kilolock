@@ -65,6 +65,7 @@ func runTagSet(args []string) int {
 		desc  = fs.String("description", "", "Optional free-form note for the tag (max 1000 chars).")
 		actor = fs.String("actor", "", "Override the actor recorded on the tag (default: $USER@cli).")
 	)
+	adminFlags := registerAdminClientFlags(fs, true)
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, "kl tag set:", err)
 		fmt.Fprint(os.Stderr, tagSetUsage)
@@ -77,11 +78,12 @@ func runTagSet(args []string) int {
 	}
 	stateArg, tagName, versionRef := fs.Arg(0), fs.Arg(1), fs.Arg(2)
 
-	stateName, _, err := resolveStateName(stateArg)
+	target, _, err := adminFlags.resolveStateTarget(stateArg, ".")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kl tag set:", err)
 		return 2
 	}
+	stateName := target.StateName
 	if err := store.ValidateTagName(tagName); err != nil {
 		fmt.Fprintln(os.Stderr, "kl tag set:", err)
 		return 2
@@ -93,7 +95,7 @@ func runTagSet(args []string) int {
 
 	ctx, cancel := context.WithTimeout(cliContext(), defaultTimeout)
 	defer cancel()
-	client, err := newAPIClient()
+	client, err := adminFlags.newClient(".")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kl tag set:", err)
 		return 1
@@ -130,6 +132,7 @@ func runTagUnset(args []string) int {
 	fs := flag.NewFlagSet("tag unset", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	actor := fs.String("actor", "", "Override the actor recorded on the unset event (default: $USER@cli).")
+	adminFlags := registerAdminClientFlags(fs, true)
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, "kl tag unset:", err)
 		fmt.Fprint(os.Stderr, tagUnsetUsage)
@@ -142,15 +145,16 @@ func runTagUnset(args []string) int {
 	}
 	stateArg, tagName := fs.Arg(0), fs.Arg(1)
 
-	stateName, _, err := resolveStateName(stateArg)
+	target, _, err := adminFlags.resolveStateTarget(stateArg, ".")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kl tag unset:", err)
 		return 2
 	}
+	stateName := target.StateName
 
 	ctx, cancel := context.WithTimeout(cliContext(), defaultTimeout)
 	defer cancel()
-	client, err := newAPIClient()
+	client, err := adminFlags.newClient(".")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kl tag unset:", err)
 		return 1
@@ -176,6 +180,7 @@ func runTagList(args []string) int {
 	fs := flag.NewFlagSet("tag list", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	format := fs.String("format", "table", "Output format: table|json.")
+	adminFlags := registerAdminClientFlags(fs, true)
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, "kl tag list:", err)
 		fmt.Fprint(os.Stderr, tagListUsage)
@@ -187,15 +192,16 @@ func runTagList(args []string) int {
 		return 2
 	}
 
-	stateName, _, err := resolveStateName(fs.Arg(0))
+	target, _, err := adminFlags.resolveStateTarget(fs.Arg(0), ".")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kl tag list:", err)
 		return 2
 	}
+	stateName := target.StateName
 
 	ctx, cancel := context.WithTimeout(cliContext(), defaultTimeout)
 	defer cancel()
-	client, err := newAPIClient()
+	client, err := adminFlags.newClient(".")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kl tag list:", err)
 		return 1
@@ -282,6 +288,10 @@ Positional:
 Flags:
   --description=NOTE    Optional free-form note (max 1000 chars).
   --actor=NAME          Override the actor recorded on the tag.
+  --state-url=URL       Full state URL. Overrides KL_STATE_URL and
+                        backend auto-discovery.
+  --token=TOKEN         Bearer token for cloud/admin API auth.
+                        Overrides KL_TOKEN.
 
 Examples:
   kl tag set prod prod-2026-05 current
@@ -296,6 +306,10 @@ Removes a tag. The pointed-to state_version is NOT deleted.
 Flags:
   --actor=NAME          Override the actor recorded on the unset
                         event (default $USER@cli).
+  --state-url=URL       Full state URL. Overrides KL_STATE_URL and
+                        backend auto-discovery.
+  --token=TOKEN         Bearer token for cloud/admin API auth.
+                        Overrides KL_TOKEN.
 `
 
 const tagListUsage = `Usage:
@@ -305,4 +319,8 @@ Lists tags on a state, newest first by last-modified.
 
 Flags:
   --format=FMT          table (default) or json.
+  --state-url=URL       Full state URL. Overrides KL_STATE_URL and
+                        backend auto-discovery.
+  --token=TOKEN         Bearer token for cloud/admin API auth.
+                        Overrides KL_TOKEN.
 `
