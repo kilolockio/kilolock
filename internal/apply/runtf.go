@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/kilolockio/kilolock/internal/plan"
 	"github.com/kilolockio/kilolock/internal/slice"
@@ -74,14 +75,25 @@ func runTerraform(ctx context.Context, dir, terraformBin string, noColor bool, t
 	if stream != nil {
 		fmt.Fprintln(os.Stderr, "kl apply: terraform init…")
 	}
-	if err := runOne(ctx, dir, terraformBin, []string{"init", "-input=false", noColorFlag(noColor)}, buildTerraformEnv(pluginCacheDir), stream, logSink); err != nil {
+	initStart := time.Now()
+	// The tmp apply workspace deliberately swaps the operator's
+	// backend for a synthesized local backend. When we also reuse the
+	// root .terraform cache, Terraform may notice that the cached
+	// backend metadata still points at the operator's original backend.
+	// `-reconfigure` tells Terraform to keep the cached providers and
+	// modules but to treat this workspace as freshly bound to the local
+	// backend, avoiding migration prompts during orchestrated apply.
+	if err := runOne(ctx, dir, terraformBin, []string{"init", "-input=false", "-reconfigure", noColorFlag(noColor)}, buildTerraformEnv(pluginCacheDir), stream, logSink); err != nil {
 		return fmt.Errorf("terraform init: %w", err)
+	}
+	if stream != nil {
+		fmt.Fprintf(os.Stderr, "kl apply: terraform init done in %s\n", time.Since(initStart).Round(time.Millisecond))
 	}
 
 	if stream != nil && len(targets) > 0 {
 		fmt.Fprintln(os.Stderr, "kl apply: validating targeted replan…")
 	}
-	if err := validateReplanMatchesTargets(ctx, dir, terraformBin, targets, vars, pluginCacheDir); err != nil {
+	if err := validateReplanMatchesTargets(ctx, dir, terraformBin, targets, vars, pluginCacheDir, stream != nil); err != nil {
 		return err
 	}
 
@@ -96,8 +108,12 @@ func runTerraform(ctx context.Context, dir, terraformBin string, noColor bool, t
 	if stream != nil {
 		fmt.Fprintln(os.Stderr, "kl apply: terraform apply…")
 	}
+	applyStart := time.Now()
 	if err := runOne(ctx, dir, terraformBin, args, buildTerraformEnv(pluginCacheDir), stream, logSink); err != nil {
 		return fmt.Errorf("terraform apply: %w", err)
+	}
+	if stream != nil {
+		fmt.Fprintf(os.Stderr, "kl apply: terraform apply done in %s\n", time.Since(applyStart).Round(time.Millisecond))
 	}
 	return nil
 }
@@ -108,7 +124,7 @@ func runTerraform(ctx context.Context, dir, terraformBin string, noColor bool, t
 // This is a correctness guard against stale plan specs, variable drift,
 // or any other mismatch between "what the operator planned" and what
 // the apply workspace would actually change.
-func validateReplanMatchesTargets(ctx context.Context, dir, terraformBin string, targets []string, vars map[string]json.RawMessage, pluginCacheDir string) error {
+func validateReplanMatchesTargets(ctx context.Context, dir, terraformBin string, targets []string, vars map[string]json.RawMessage, pluginCacheDir string, verbose bool) error {
 	// Empty targets means "full apply"; in that mode the check isn't
 	// meaningful (it would require comparing full action lists) and is
 	// intentionally skipped for now.
@@ -123,7 +139,10 @@ func validateReplanMatchesTargets(ctx context.Context, dir, terraformBin string,
 	tfplan.Close()
 	defer os.Remove(tfplan.Name())
 
-	fmt.Fprintf(os.Stderr, "kl apply: validation terraform plan (%d targets)…\n", len(targets))
+	if verbose {
+		fmt.Fprintf(os.Stderr, "kl apply: validation terraform plan (%d targets)…\n", len(targets))
+	}
+	planStart := time.Now()
 	if err := runTerraformPlanStreaming(ctx, terraformBin, dir, tfplan.Name(), plan.PlanRunOptions{
 		Lock:    false,
 		Refresh: false,
@@ -132,10 +151,17 @@ func validateReplanMatchesTargets(ctx context.Context, dir, terraformBin string,
 	}, pluginCacheDir); err != nil {
 		return fmt.Errorf("replan: terraform plan: %w", err)
 	}
-	fmt.Fprintln(os.Stderr, "kl apply: validation terraform show…")
+	if verbose {
+		fmt.Fprintf(os.Stderr, "kl apply: validation terraform plan done in %s\n", time.Since(planStart).Round(time.Millisecond))
+		fmt.Fprintln(os.Stderr, "kl apply: validation terraform show…")
+	}
+	showStart := time.Now()
 	b, err := plan.RunTerraformShow(ctx, terraformBin, dir, tfplan.Name())
 	if err != nil {
 		return fmt.Errorf("replan: terraform show: %w", err)
+	}
+	if verbose {
+		fmt.Fprintf(os.Stderr, "kl apply: validation terraform show done in %s\n", time.Since(showStart).Round(time.Millisecond))
 	}
 	f, err := plan.ParseShowJSONBytes(b)
 	if err != nil {

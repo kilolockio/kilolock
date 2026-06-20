@@ -14,7 +14,8 @@ import (
 //
 //   - .tf files from the operator's directory are copied verbatim
 //   - the operator's backend.tf is REPLACED with our local backend
-//   - hidden files / state files / subdirectories are skipped
+//   - top-level Terraform cache artifacts are reused
+//   - other hidden files / state files are skipped
 //   - the slice we hand in is serialized as terraform.tfstate
 //
 // We don't try to assert exact byte equality on the slice file:
@@ -31,6 +32,7 @@ func TestSetupApplyDir_CopiesAndOverrides(t *testing.T) {
 	writeFile(t, srcDir, "backend.tf", `terraform { backend "http" { address = "https://example/" } }`+"\n")
 	writeFile(t, srcDir, "terraform.tfstate", `{"version":4,"serial":1,"lineage":"stale"}`+"\n")
 	writeFile(t, srcDir, ".terraform.lock.hcl", `# pinned`+"\n")
+	writeFile(t, srcDir, ".terraform/providers/marker", "provider cache\n")
 	if err := os.MkdirAll(filepath.Join(srcDir, "modules", "foo"), 0o755); err != nil {
 		t.Fatalf("mkdir modules: %v", err)
 	}
@@ -56,8 +58,11 @@ func TestSetupApplyDir_CopiesAndOverrides(t *testing.T) {
 	if !fileExists(filepath.Join(res.Dir, "variables.tf")) {
 		t.Errorf("variables.tf was not copied")
 	}
-	if fileExists(filepath.Join(res.Dir, ".terraform.lock.hcl")) {
-		t.Errorf("hidden lock file should have been skipped")
+	if !fileExists(filepath.Join(res.Dir, ".terraform.lock.hcl")) {
+		t.Errorf("top-level lock file should have been reused")
+	}
+	if !fileExists(filepath.Join(res.Dir, ".terraform", "providers", "marker")) {
+		t.Errorf("top-level .terraform cache should have been reused")
 	}
 	if !fileExists(filepath.Join(res.Dir, "modules", "foo", "main.tf")) {
 		t.Errorf("local module file should have been copied recursively")
@@ -109,16 +114,18 @@ func TestSetupApplyDir_NilInputsRejected(t *testing.T) {
 // TestSetupApplyDir_DenylistFiltersHiddenAndStateAtAllDepths
 // pins the recursive-copy rules. A user's repo may have:
 //
+//   - a top-level .terraform/ cache we do want to reuse
 //   - a nested .terraform/ left over from a previous init
 //   - a hidden directory like .git
 //   - a sub-module that happens to contain its own
 //     terraform.tfstate (foreign data we shouldn't touch)
 //
-// None of these should land in the apply tmp dir.
+// Only the root cache should land in the apply tmp dir.
 func TestSetupApplyDir_DenylistFiltersHiddenAndStateAtAllDepths(t *testing.T) {
 	srcDir := t.TempDir()
 	writeFile(t, srcDir, "main.tf", `# root`+"\n")
 	writeFile(t, srcDir, "modules/foo/main.tf", `# module foo`+"\n")
+	writeFile(t, srcDir, ".terraform/providers/root-marker", "keep me\n")
 
 	if err := os.MkdirAll(filepath.Join(srcDir, "modules", "foo", ".terraform", "providers"), 0o755); err != nil {
 		t.Fatalf("mkdir nested .terraform: %v", err)
@@ -138,6 +145,9 @@ func TestSetupApplyDir_DenylistFiltersHiddenAndStateAtAllDepths(t *testing.T) {
 
 	if !fileExists(filepath.Join(res.Dir, "modules", "foo", "main.tf")) {
 		t.Errorf("expected module to be copied")
+	}
+	if !fileExists(filepath.Join(res.Dir, ".terraform", "providers", "root-marker")) {
+		t.Errorf("expected top-level .terraform cache to be copied")
 	}
 	if fileExists(filepath.Join(res.Dir, "modules", "foo", ".terraform")) {
 		t.Errorf("nested .terraform must be skipped")

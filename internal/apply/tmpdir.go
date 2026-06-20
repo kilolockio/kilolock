@@ -49,12 +49,18 @@ func setupApplyDir(srcDir string, sliceState *slice.TrunkState, skipCleanup bool
 
 	// Recursively copy the operator's HCL tree, including local
 	// sub-modules referenced by source = "./modules/foo". The
-	// recursive walker skips a small denylist so the apply tmp dir
-	// stays hermetic from the operator's backend cache:
+	// recursive walker skips a small denylist while preserving the
+	// safe cache artifacts that let `terraform init` become mostly
+	// incremental instead of starting from zero every time:
 	//
-	//   - .terraform/ at any depth (rebuilt by `terraform init`
-	//     inside the tmp dir; the operator's HTTP-backend cache is
-	//     incompatible with our local backend)
+	//   - the top-level .terraform/ cache is preserved so provider
+	//     plugins, downloaded modules, and terraform's working-dir
+	//     metadata can be reused by the tmp apply. We still run
+	//     `terraform init` inside the tmp dir to reconcile the
+	//     backend and refresh any stale metadata.
+	//   - nested .terraform/ directories remain skipped. These come
+	//     from copied subprojects/modules and are more likely to be
+	//     unrelated leftovers than useful cache.
 	//   - .terraform.lock.hcl is preserved so the tmp apply uses the
 	//     same provider selections as the operator's real workspace.
 	//     This avoids silently drifting to newer provider versions
@@ -66,7 +72,7 @@ func setupApplyDir(srcDir string, sliceState *slice.TrunkState, skipCleanup bool
 	//     replacement below). Sub-module backend.tf is preserved if
 	//     it exists, but Terraform itself rejects backend blocks in
 	//     non-root modules so this is a no-op in practice.
-	//   - hidden files / dirs (".something") to avoid copying
+	//   - other hidden files / dirs (".something") to avoid copying
 	//     editor/version-control crud.
 	if err := copyHCLTree(srcDir, dir); err != nil {
 		cleanup()
@@ -169,8 +175,11 @@ func copyHCLTreeAt(src, dst string, isRoot bool) error {
 // second-guess.
 func shouldSkipEntry(e os.DirEntry, name string, isRoot bool) bool {
 	if strings.HasPrefix(name, ".") {
-		// .terraform/, hidden editor files, .git, etc. — never
-		// useful inside the apply tmp dir.
+		if isRoot && (name == ".terraform" || name == ".terraform.lock.hcl") {
+			return false
+		}
+		// Hidden editor files, .git, nested .terraform, etc. are
+		// never useful inside the apply tmp dir.
 		return true
 	}
 	if isRoot {
@@ -190,7 +199,15 @@ func copyOneFile(src, dst string) error {
 		return err
 	}
 	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	info, err := in.Stat()
+	if err != nil {
+		return err
+	}
+	mode := info.Mode().Perm()
+	if mode == 0 {
+		mode = 0o644
+	}
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
 	if err != nil {
 		return err
 	}
