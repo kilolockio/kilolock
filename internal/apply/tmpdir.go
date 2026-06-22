@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/kilolockio/kilolock/internal/slice"
+	"github.com/kilolockio/kilolock/internal/workdir"
 )
 
 // setupResult bundles everything the orchestrator needs after the
@@ -37,7 +38,11 @@ func setupApplyDir(srcDir string, sliceState *slice.TrunkState, skipCleanup bool
 		return nil, fmt.Errorf("setupApplyDir: sliceState is nil")
 	}
 
-	dir, err := os.MkdirTemp("", "kl-apply-*")
+	scratchRoot, err := workdir.ResolveScratchRoot("")
+	if err != nil {
+		return nil, fmt.Errorf("resolve scratch workdir: %w", err)
+	}
+	dir, err := os.MkdirTemp(scratchRoot, "kl-apply-*")
 	if err != nil {
 		return nil, fmt.Errorf("mkdir tmp: %w", err)
 	}

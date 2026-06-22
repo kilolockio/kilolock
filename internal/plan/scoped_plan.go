@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/kilolockio/kilolock/internal/slice"
+	"github.com/kilolockio/kilolock/internal/workdir"
 )
 
 type ScopedPlanOptions struct {
@@ -46,7 +47,11 @@ func RunScopedTerraformPlan(ctx context.Context, terraformBin, configDir string,
 	// Create the scoped workspace under the project directory so CI
 	// environments with noexec /tmp mounts can still execute provider
 	// binaries from the copied .terraform cache.
-	dir, err := os.MkdirTemp(configDir, ".kl-plan-scope-*")
+	scratchRoot, err := workdir.ResolveScratchRoot(configDir)
+	if err != nil {
+		return nil, fmt.Errorf("scoped plan: resolve scratch workdir: %w", err)
+	}
+	dir, err := os.MkdirTemp(scratchRoot, ".kl-plan-scope-*")
 	if err != nil {
 		return nil, fmt.Errorf("scoped plan: mkdir tmp: %w", err)
 	}
@@ -97,7 +102,11 @@ func RunTargetScopedTerraformPlan(ctx context.Context, terraformBin, configDir s
 	}
 	sliced := buildScopedStateSlice(trunk, sliceTargets)
 
-	dir, err := os.MkdirTemp(configDir, ".kl-plan-target-*")
+	scratchRoot, err := workdir.ResolveScratchRoot(configDir)
+	if err != nil {
+		return nil, fmt.Errorf("targeted plan: resolve scratch workdir: %w", err)
+	}
+	dir, err := os.MkdirTemp(scratchRoot, ".kl-plan-target-*")
 	if err != nil {
 		return nil, fmt.Errorf("targeted plan: mkdir tmp: %w", err)
 	}

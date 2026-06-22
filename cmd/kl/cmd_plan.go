@@ -15,6 +15,7 @@ import (
 
 	"github.com/kilolockio/kilolock/internal/plan"
 	"github.com/kilolockio/kilolock/internal/slice"
+	"github.com/kilolockio/kilolock/internal/workdir"
 	"github.com/kilolockio/kilolock/pkg/config"
 )
 
@@ -132,6 +133,9 @@ Flags:
   --out PATH, -o PATH     Where to write the plan spec. Defaults to
                           <config-dir>/kl-plan.json.
                           Use - for stdout.
+  Scratch workspace/temp files:
+                          default to <config-dir>, honor TF_DATA_DIR,
+                          and let KL_DATA_DIR override it.
   --terraform-bin PATH    terraform binary path. Default: "terraform" on $PATH.
   --no-lock               Pass -lock=false to terraform plan (skip backend lock).
   --no-refresh            Pass -refresh=false to terraform plan. Skips the
@@ -377,7 +381,12 @@ func runPlan(args []string) int {
 		// terraform's plugin cache + provider lookup work. Cleanup runs
 		// even on failure; the file is small (a few KB to MB) but
 		// leaving it around would pollute the user's working tree.
-		tfplanPath, err := os.CreateTemp(absConfigDir, ".kl-plan-*.tfplan")
+		scratchRoot, err := workdir.ResolveScratchRoot(absConfigDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "kl plan: resolve scratch workdir: %v\n", err)
+			return 1
+		}
+		tfplanPath, err := os.CreateTemp(scratchRoot, ".kl-plan-*.tfplan")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "kl plan: create tmp plan file: %v\n", err)
 			return 1

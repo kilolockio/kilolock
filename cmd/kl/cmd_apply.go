@@ -19,6 +19,7 @@ import (
 	"github.com/kilolockio/kilolock/internal/apply"
 	"github.com/kilolockio/kilolock/internal/plan"
 	"github.com/kilolockio/kilolock/internal/slice"
+	"github.com/kilolockio/kilolock/internal/workdir"
 	"github.com/kilolockio/kilolock/pkg/config"
 	"github.com/kilolockio/kilolock/pkg/store"
 )
@@ -547,7 +548,11 @@ func buildFullSpecForApply(ctx context.Context, workDirFlag, terraformBin, iacVe
 		return nil, err
 	}
 	fmt.Fprintln(os.Stderr, "kl apply: building full plan…")
-	tfplanPath, err := os.CreateTemp(absConfigDir, ".kl-apply-*.tfplan")
+	scratchRoot, err := workdir.ResolveScratchRoot(absConfigDir)
+	if err != nil {
+		return nil, fmt.Errorf("resolve scratch workdir: %w", err)
+	}
+	tfplanPath, err := os.CreateTemp(scratchRoot, ".kl-apply-*.tfplan")
 	if err != nil {
 		return nil, fmt.Errorf("create tmp plan file: %w", err)
 	}
@@ -619,6 +624,11 @@ Flags:
   --work-dir=DIR        Operator's Terraform configuration directory.
                         Defaults to the directory containing the spec
                         file, or the spec's recorded config_dir.
+  Scratch workspace/temp files:
+                        default to the system temp dir for orchestrated
+                        apply and to the config dir for full-plan temp
+                        files, honor TF_DATA_DIR, and let KL_DATA_DIR
+                        override it.
   --actor=NAME          Actor string for the audit log.
   --terraform-bin=PATH  Override the terraform binary path.
   --no-refresh          With --file: pass -refresh=false during scoped plan.
