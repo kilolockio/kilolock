@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/kilolockio/kilolock/pkg/store"
@@ -118,11 +120,12 @@ func (c *remoteApplyClient) ReleaseReservations(ctx context.Context, applyID str
 }
 
 func (c *remoteApplyClient) WriteStateForApply(ctx context.Context, name string, rawState []byte, source, actor string) error {
-	return c.api.postJSON(ctx, "/admin/state/write-apply?name="+url.QueryEscape(name), name, map[string]any{
+	err := c.api.postJSON(ctx, "/admin/state/write-apply?name="+url.QueryEscape(name), name, map[string]any{
 		"raw_state": string(rawState),
 		"source":    source,
 		"actor":     actor,
 	}, nil)
+	return normalizeWriteStateForApplyError(err)
 }
 
 func (c *remoteApplyClient) LookupStateVersionID(ctx context.Context, stateID string, serial int64) (string, error) {
@@ -137,4 +140,15 @@ func (c *remoteApplyClient) LookupStateVersionID(ctx context.Context, stateID st
 		return "", fmt.Errorf("state version id missing in response")
 	}
 	return out.VersionID, nil
+}
+
+func normalizeWriteStateForApplyError(err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	if strings.Contains(msg, "409 conflict") && strings.Contains(msg, "state serial conflict") {
+		return errors.Join(store.ErrSerialConflict, err)
+	}
+	return err
 }
