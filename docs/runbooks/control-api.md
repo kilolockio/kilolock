@@ -1,7 +1,7 @@
 # Control API runbook
 
 This document describes the **klc** HTTP API (control-plane).
-All endpoints are rooted at `/api`.
+All endpoints are rooted at `/v1/api`.
 
 ## Auth
 
@@ -21,11 +21,11 @@ control-plane way to raise limits like `max_state_resources` or
 `max_environment_resources` without ad-hoc SQL.
 
 Inspect current tenant settings:
-- `GET /api/tenants/{slug}`
+- `GET /v1/api/tenants/{slug}`
 - Permission: `tenant.read` (scoped to the tenant)
 
 Endpoint:
-- `POST /api/tenants/entitlements`
+- `POST /v1/api/tenants/entitlements`
 - Permission: `tenant.entitlements.update`
 
 Request body:
@@ -45,7 +45,7 @@ Request body:
 Example:
 
 ```bash
-curl -sS -X POST "http://localhost:18082/api/tenants/entitlements" \
+curl -sS -X POST "http://localhost:18082/v1/api/tenants/entitlements" \
   -H "Authorization: Bearer $KL_CONTROL_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"slug":"operator","billing_plan":"starter","max_environments":1,"max_state_resources":100,"max_environment_resources":500,"reason":"demo"}'
@@ -56,7 +56,7 @@ curl -sS -X POST "http://localhost:18082/api/tenants/entitlements" \
 Set a tenant's lifecycle status (`active`, `suspended`, `archived`).
 
 Endpoint:
-- `POST /api/tenants/lifecycle`
+- `POST /v1/api/tenants/lifecycle`
 - Permission: `tenant.lifecycle.update`
 
 Request body:
@@ -80,7 +80,7 @@ Update the per-state policy that governs:
 - whether plain Terraform uses optimistic whole-state locks or strict serialization (`exclusive_locks`)
 - whether `kl apply` merely warns or fails closed when plain-TF locks are active (`coexistence_mode`)
 
-- `POST /api/states/{tenant}/{environment}/config`
+- `POST /v1/api/states/{tenant}/{environment}/config`
 - Permission: `state.config.update`
 
 Request body:
@@ -102,7 +102,7 @@ Notes:
 Example:
 
 ```bash
-curl -sS -X POST "http://localhost:18082/api/states/acme/prod/config" \
+curl -sS -X POST "http://localhost:18082/v1/api/states/acme/prod/config" \
   -H "Authorization: Bearer $CONTROL_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -117,26 +117,26 @@ curl -sS -X POST "http://localhost:18082/api/states/acme/prod/config" \
 Operators can inspect and resolve customer-facing environment ownership
 transfers from the control plane too.
 
-- `GET /api/ownership-transfers`
+- `GET /v1/api/ownership-transfers`
   - Permission: `tenant.read`
   - Query params:
     - `tenant` optional source/target tenant filter
     - `status` optional status filter (`pending`, `accepted`, `rejected`, `cancelled`)
-- `POST /api/ownership-transfers`
+- `POST /v1/api/ownership-transfers`
   - Permission: `environment.transfer.update`
-- `POST /api/tenants/{tenant}/environments/rename`
+- `POST /v1/api/tenants/{tenant}/environments/rename`
   - Permission: `environment.create`
-- `POST /api/ownership-transfers/{id}/accept`
+- `POST /v1/api/ownership-transfers/{id}/accept`
   - Permission: `environment.transfer.update`
-- `POST /api/ownership-transfers/{id}/reject`
+- `POST /v1/api/ownership-transfers/{id}/reject`
   - Permission: `environment.transfer.update`
-- `POST /api/ownership-transfers/{id}/cancel`
+- `POST /v1/api/ownership-transfers/{id}/cancel`
   - Permission: `environment.transfer.update`
 
 Create example:
 
 ```bash
-curl -sS -X POST "http://localhost:18082/api/ownership-transfers" \
+curl -sS -X POST "http://localhost:18082/v1/api/ownership-transfers" \
   -H "Authorization: Bearer $CONTROL_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -157,7 +157,7 @@ Notes:
 Accept example:
 
 ```bash
-curl -sS -X POST "http://localhost:18082/api/ownership-transfers/$PROPOSAL_ID/accept" \
+curl -sS -X POST "http://localhost:18082/v1/api/ownership-transfers/$PROPOSAL_ID/accept" \
   -H "Authorization: Bearer $CONTROL_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"actor":"operator@example.com","target_new_slug":"prod-beta"}'

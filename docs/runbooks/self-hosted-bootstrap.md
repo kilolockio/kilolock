@@ -108,7 +108,7 @@ rm -rf examples/big-state/.terraform examples/big-state/.terraform.lock.hcl
 Use backend addresses shaped like:
 
 ```text
-http://localhost:8080/states/{workspace_id}/{env_public_id}/{state_name}
+http://localhost:8080/v1/states/{workspace_id}/{env_public_id}/{state_name}
 ```
 
 Where:

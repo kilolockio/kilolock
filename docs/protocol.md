@@ -12,7 +12,7 @@ intentional deviation explicitly.
 A state is addressed by name at the URL path:
 
 ```
-<scheme>://<host>:<port>/states/<state_name>
+<scheme>://<host>:<port>/v1/states/<state_name>
 ```
 
 The `<state_name>` segment is URL-decoded and must be non-empty. State
@@ -23,9 +23,9 @@ A sample Terraform backend block:
 ```hcl
 terraform {
   backend "http" {
-    address        = "http://localhost:8080/states/example"
-    lock_address   = "http://localhost:8080/states/example"
-    unlock_address = "http://localhost:8080/state-unlock/example"
+    address        = "http://localhost:8080/v1/states/example"
+    lock_address   = "http://localhost:8080/v1/states/example"
+    unlock_address = "http://localhost:8080/v1/state-unlock/example"
     lock_method    = "LOCK"
     unlock_method  = "POST"
   }
@@ -36,12 +36,12 @@ Recommended deployment patterns:
 
 - **Local OSS / Docker Compose:** use the sample above directly.
 - **Hosted / cloud behind a managed edge:** also use the sample above. The
-  separate `POST /state-unlock/...` route exists specifically because some
+  separate `POST /v1/state-unlock/...` route exists specifically because some
   providers reject `UNLOCK` with a request body before it reaches Kilolock.
 
 ## Operations
 
-### `GET /states/{name}`
+### `GET /v1/states/{name}`
 
 Returns the current (most recent) state for the named state.
 
@@ -49,7 +49,7 @@ Returns the current (most recent) state for the named state.
   state exists.
 - **404** with no body when the state has never been written.
 
-### `POST /states/{name}?ID=<lock_id>`
+### `POST /v1/states/{name}?ID=<lock_id>`
 
 Atomically writes a new state version. The request body is the full
 `.tfstate` JSON; Kilolock stores it byte-for-byte in
@@ -75,7 +75,7 @@ Lock semantics:
 - **423 Locked** per the lock matrix above.
 - **500** on internal errors.
 
-### `DELETE /states/{name}?ID=<lock_id>`
+### `DELETE /v1/states/{name}?ID=<lock_id>`
 
 Removes a state and (via `ON DELETE CASCADE`) all of its versions,
 resources, dependencies, outputs, locks, and audit events. Same lock
@@ -85,7 +85,7 @@ semantics as `POST`.
 - **404** if the state does not exist.
 - **409 / 423** per the lock matrix.
 
-### `LOCK /states/{name}`
+### `LOCK /v1/states/{name}`
 
 Acquires a lock on the named state, creating the state row on first use.
 The request body is the JSON `LockInfo` Terraform sends:
@@ -98,7 +98,7 @@ The request body is the JSON `LockInfo` Terraform sends:
   "Who":       "alice@laptop",
   "Version":   "1.13.4",
   "Created":   "2026-05-12T11:30:00.000Z",
-  "Path":      "http://localhost:8080/states/example"
+  "Path":      "http://localhost:8080/v1/states/example"
 }
 ```
 
@@ -107,7 +107,7 @@ The request body is the JSON `LockInfo` Terraform sends:
 - **423 Locked** when the state is already locked; the response body is
   the existing `LockInfo` JSON so Terraform can show the holder.
 
-### `UNLOCK /states/{name}`
+### `UNLOCK /v1/states/{name}`
 
 Releases a held lock. Two shapes are accepted:
 
@@ -133,10 +133,10 @@ Releases a held lock. Two shapes are accepted:
 - **409 Conflict** when an owner-release `ID` does not match the held
   lock.
 
-### `POST /state-unlock/{name}`
+### `POST /v1/state-unlock/{name}`
 
 Cloud-compatible alias for lock release. It performs the same operation as
-`UNLOCK /states/{name}` and accepts the same payload shapes:
+`UNLOCK /v1/states/{name}` and accepts the same payload shapes:
 
 1. `LockInfo` JSON with matching `ID`
 2. empty body for force-unlock
@@ -155,12 +155,12 @@ belongs to one tenant and is stored as a SHA-256 hash.
 Create customers and tokens with the control API:
 
 ```sh
-curl -sS -X POST "http://localhost:8090/api/tenants" \
+curl -sS -X POST "http://localhost:8090/v1/api/tenants" \
   -H "Authorization: Bearer $KL_CONTROL_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"slug":"acme","name":"Acme Corp"}'
 
-curl -sS -X POST "http://localhost:8090/api/tenants/acme/tokens" \
+curl -sS -X POST "http://localhost:8090/v1/api/tenants/acme/tokens" \
   -H "Authorization: Bearer $KL_CONTROL_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name":"terraform-ci","environment":"default"}'
@@ -172,9 +172,9 @@ curl -sS -X POST "http://localhost:8090/api/tenants/acme/tokens" \
 ```hcl
 terraform {
   backend "http" {
-    address        = "https://api.example.com/states/ws_ab12cd34ef56/env_12ab34cd56ef/prod"
-    lock_address   = "https://api.example.com/states/ws_ab12cd34ef56/env_12ab34cd56ef/prod"
-    unlock_address = "https://api.example.com/state-unlock/ws_ab12cd34ef56/env_12ab34cd56ef/prod"
+    address        = "https://api.example.com/v1/states/ws_ab12cd34ef56/env_12ab34cd56ef/prod"
+    lock_address   = "https://api.example.com/v1/states/ws_ab12cd34ef56/env_12ab34cd56ef/prod"
+    unlock_address = "https://api.example.com/v1/state-unlock/ws_ab12cd34ef56/env_12ab34cd56ef/prod"
     lock_method    = "LOCK"
     unlock_method  = "POST"
     username       = "ws_ab12cd34ef56"   # workspace_id
@@ -212,7 +212,7 @@ see each other's rows. In the workspace/environment-aware runtime path,
 the backend address is:
 
 ```text
-/states/{workspace_id}/{env_public_id}/{state_name}
+/v1/states/{workspace_id}/{env_public_id}/{state_name}
 ```
 
 ## Audit trail
@@ -221,11 +221,11 @@ Every operation that mutates state writes a row to `events`:
 
 | `events.kind` | Triggered by |
 |---|---|
-| `state_write` | `POST /states/{name}` |
-| `state_delete` | `DELETE /states/{name}` |
-| `lock_acquire` | `LOCK /states/{name}` |
-| `lock_release` | `UNLOCK /states/{name}` with matching `ID` |
-| `lock_force_release` | `UNLOCK /states/{name}` with empty body / empty `ID` (`terraform force-unlock`) |
+| `state_write` | `POST /v1/states/{name}` |
+| `state_delete` | `DELETE /v1/states/{name}` |
+| `lock_acquire` | `LOCK /v1/states/{name}` |
+| `lock_release` | `UNLOCK /v1/states/{name}` with matching `ID` |
+| `lock_force_release` | `UNLOCK /v1/states/{name}` with empty body / empty `ID` (`terraform force-unlock`) |
 
 Reads do not produce events in v0.
 
@@ -240,12 +240,12 @@ Reads do not produce events in v0.
 
 ## Deviations from the Terraform `http` backend
 
-- **Lock acquisition is fixed at `LOCK /states/{name}`.** Terraform's `http`
+- **Lock acquisition is fixed at `LOCK /v1/states/{name}`.** Terraform's `http`
   backend lets you configure other methods, but v0 Kilolock does not currently
   provide a `POST` alias for lock acquisition.
 - **Lock release supports two wire shapes:** canonical
-  `UNLOCK /states/{name}` and the cloud-friendly alias
-  `POST /state-unlock/{name}`. The latter exists to work around managed edges
+  `UNLOCK /v1/states/{name}` and the cloud-friendly alias
+  `POST /v1/state-unlock/{name}`. The latter exists to work around managed edges
   that reject `UNLOCK` with a body.
 - **No `update_method` distinction.** Terraform supports configuring an
   alternate method (e.g. `PUT`) for state writes; v0 implements `POST`

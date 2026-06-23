@@ -75,9 +75,9 @@ Terraform’s `backend "http"` only supports HTTP Basic auth. Contract:
 ```hcl
 terraform {
   backend "http" {
-    address        = "https://api.kl.example/states/my-workspace"
-    lock_address   = "https://api.kl.example/states/my-workspace"
-    unlock_address = "https://api.kl.example/state-unlock/my-workspace"
+    address        = "https://api.kl.example/v1/states/my-workspace"
+    lock_address   = "https://api.kl.example/v1/states/my-workspace"
+    unlock_address = "https://api.kl.example/v1/state-unlock/my-workspace"
     lock_method    = "LOCK"
     unlock_method  = "POST"
     username       = "acme"      # tenant slug (informational + Basic auth user)
@@ -90,8 +90,8 @@ terraform {
 
 1. Validate `password` → `api_tokens` → `(tenant_id, environment_id)`.
 2. Optionally require `username` = tenant slug and reject mismatch (defense in depth).
-3. All `/states/{name}` operations run against the **data-plane pool** for that `environment_id`.
-4. Path does **not** include environment slug (token already scopes env). Alternative URL shape `/envs/{env}/states/{name}` is reserved for future explicit routing but not required if token is env-scoped.
+3. All `/v1/states/{name}` operations run against the **data-plane pool** for that `environment_id`.
+4. Path does **not** include environment slug (token already scopes env). Alternative URL shape `/envs/{env}/v1/states/{name}` is reserved for future explicit routing but not required if token is env-scoped.
 
 Bearer tokens (`Authorization: Bearer kl_…`) remain supported for non-Terraform clients; same env binding.
 
@@ -169,7 +169,7 @@ an environment-scoped pool.
 | Phase | Deliverable |
 |-------|-------------|
 | **E1** | Control plane schema: `environments`, token → `environment_id`, provision status |
-| **E2** | `EnvironmentRouter` + pool cache; serve uses env pool for `/states/*` |
+| **E2** | `EnvironmentRouter` + pool cache; serve uses env pool for `/v1/states/*` |
 | **E3** | control API environment create + sync provision on shared host |
 | **E4** | Token create binds to environment; integration tests (two DBs, no cross-read) — done |
 | **E5** | `store.NewIsolated`: data-plane reads omit `tenant_id` filter; router uses isolated store when `database_dsn` set — done |

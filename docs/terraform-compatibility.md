@@ -70,7 +70,7 @@ Different IaC client versions can affect:
 
 Control-plane API exposes observed version distribution:
 
-- `GET /api/platform/iac-versions?limit=50`
+- `GET /v1/api/platform/iac-versions?limit=50`
 
 This aggregates `state_versions.terraform_version` so operators can:
 

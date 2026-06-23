@@ -69,7 +69,7 @@ the two POSTs succeed.
 Before recording, make sure the demo state is in optimistic lock mode:
 
 ```bash
-curl -sS -X POST "http://localhost:8090/api/states/operator/default/config" \
+curl -sS -X POST "http://localhost:8090/v1/api/states/operator/default/config" \
   -H "Authorization: Bearer $KL_CONTROL_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"state":"big-state","exclusive_locks":false}'
