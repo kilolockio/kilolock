@@ -112,16 +112,16 @@ assert_control_authz() {
   curl -sf \
     -H "Authorization: Bearer ${KL_CONTROL_TOKEN}" \
     -H "Content-Type: application/json" \
-    -X POST "http://localhost:18082/api/rbac/grants" \
+    -X POST "http://localhost:18082/v1/api/rbac/grants" \
     -d "{\"subject_kind\":\"api_token\",\"subject_id\":\"${readonly_id}\",\"role_key\":\"support_readonly\",\"scope_kind\":\"tenant\",\"scope_ref\":\"operator\",\"granted_by\":\"migration-smoke\"}" \
     >/dev/null
 
   # tenant-scoped readonly token can read environments in its tenant
-  curl -sf -H "Authorization: Bearer ${readonly_secret}" "http://localhost:18082/api/tenants/operator/environments" >/dev/null
+  curl -sf -H "Authorization: Bearer ${readonly_secret}" "http://localhost:18082/v1/api/tenants/operator/environments" >/dev/null
   # but cannot access global tenant list
   code="$(curl -s -o /tmp/kl-migration-smoke-authz-global.out -w '%{http_code}' \
     -H "Authorization: Bearer ${readonly_secret}" \
-    "http://localhost:18082/api/tenants")"
+    "http://localhost:18082/v1/api/tenants")"
   if [[ "$code" != "403" ]]; then
     echo "expected 403 for readonly global tenant list, got ${code}" >&2
     cat /tmp/kl-migration-smoke-authz-global.out >&2 || true
@@ -131,7 +131,7 @@ assert_control_authz() {
   code="$(curl -s -o /tmp/kl-migration-smoke-authz.out -w '%{http_code}' \
     -H "Authorization: Bearer ${readonly_secret}" \
     -H "Content-Type: application/json" \
-    -X POST "http://localhost:18082/api/tenants" \
+    -X POST "http://localhost:18082/v1/api/tenants" \
     -d '{"slug":"forbidden","name":"Forbidden"}')"
   if [[ "$code" != "403" ]]; then
     echo "expected 403 for readonly tenant create, got ${code}" >&2
@@ -150,19 +150,19 @@ assert_control_audit_events() {
   curl -sf \
     -H "Authorization: Bearer ${KL_CONTROL_TOKEN}" \
     -H "Content-Type: application/json" \
-    -X POST "http://localhost:18082/api/tenants" \
+    -X POST "http://localhost:18082/v1/api/tenants" \
     -d "{\"slug\":\"${tenant_slug}\",\"name\":\"Audit Smoke\"}" \
     >/dev/null
   curl -sf \
     -H "Authorization: Bearer ${KL_CONTROL_TOKEN}" \
     -H "Content-Type: application/json" \
-    -X POST "http://localhost:18082/api/tenants/${tenant_slug}/environments" \
+    -X POST "http://localhost:18082/v1/api/tenants/${tenant_slug}/environments" \
     -d "{\"slug\":\"${env_slug}\",\"tier\":\"shared\"}" \
     >/dev/null
   curl -sf \
     -H "Authorization: Bearer ${KL_CONTROL_TOKEN}" \
     -H "Content-Type: application/json" \
-    -X POST "http://localhost:18082/api/tokens" \
+    -X POST "http://localhost:18082/v1/api/tokens" \
     -d "{\"tenant\":\"${tenant_slug}\",\"environment\":\"${env_slug}\",\"name\":\"${token_name}\"}" \
     >/dev/null
 
@@ -175,19 +175,19 @@ assert_control_audit_events() {
   curl -sf \
     -H "Authorization: Bearer ${KL_CONTROL_TOKEN}" \
     -H "Content-Type: application/json" \
-    -X POST "http://localhost:18082/api/tenants/lifecycle" \
+    -X POST "http://localhost:18082/v1/api/tenants/lifecycle" \
     -d "{\"slug\":\"${tenant_slug}\",\"status\":\"suspended\",\"reason\":\"migration-smoke\"}" \
     >/dev/null
   curl -sf \
     -H "Authorization: Bearer ${KL_CONTROL_TOKEN}" \
     -H "Content-Type: application/json" \
-    -X POST "http://localhost:18082/api/tenants/${tenant_slug}/environments/lifecycle" \
+    -X POST "http://localhost:18082/v1/api/tenants/${tenant_slug}/environments/lifecycle" \
     -d "{\"environment\":\"${env_slug}\",\"status\":\"suspended\",\"reason\":\"migration-smoke\"}" \
     >/dev/null
   curl -sf \
     -H "Authorization: Bearer ${KL_CONTROL_TOKEN}" \
     -H "Content-Type: application/json" \
-    -X POST "http://localhost:18082/api/tokens/lifecycle" \
+    -X POST "http://localhost:18082/v1/api/tokens/lifecycle" \
     -d "{\"id\":\"${token_id}\",\"status\":\"suspended\",\"reason\":\"migration-smoke\"}" \
     >/dev/null
 

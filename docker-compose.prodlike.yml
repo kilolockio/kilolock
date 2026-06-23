@@ -7,7 +7,7 @@
 #   curl -s http://localhost:8080/healthz
 #
 # State API (tenant slug + token — matches Terraform http backend):
-#   curl -s -u "local:dev-local-token-change-me" http://localhost:8080/states/example
+#   curl -s -u "local:dev-local-token-change-me" http://localhost:8080/v1/states/example
 #
 # Create another customer manually:
 #   docker compose exec kl kl admin tenant create --slug acme --name "Acme"

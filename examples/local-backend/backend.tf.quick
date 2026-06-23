@@ -1,8 +1,8 @@
 terraform {
   backend "http" {
-    address        = "http://localhost:8080/states/big-state"
-    lock_address   = "http://localhost:8080/states/big-state"
-    unlock_address = "http://localhost:8080/state-unlock/big-state"
+    address        = "http://localhost:8080/v1/states/big-state"
+    lock_address   = "http://localhost:8080/v1/states/big-state"
+    unlock_address = "http://localhost:8080/v1/state-unlock/big-state"
     lock_method    = "LOCK"
     unlock_method  = "POST"
   }

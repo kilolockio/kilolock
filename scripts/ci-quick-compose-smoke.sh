@@ -106,7 +106,7 @@ KL_BIN="$ROOT_DIR/bin/kl" \
 
 strict_mode="$(curl -fsS \
   -H "Authorization: Bearer ${KL_CONTROL_TOKEN}" \
-  "http://localhost:${KL_CONTROL_PORT}/api/states/vnv/prod" \
+  "http://localhost:${KL_CONTROL_PORT}/v1/api/states/vnv/prod" \
   | jq -r '.states[] | select(.name=="big-state") | .coexistence_mode')"
 if [[ "${strict_mode}" != "strict" ]]; then
   echo "quick-compose smoke: expected big-state coexistence_mode=strict after policy_strict, got ${strict_mode:-<empty>}" >&2
@@ -122,7 +122,7 @@ KL_BIN="$ROOT_DIR/bin/kl" \
 
 warn_mode="$(curl -fsS \
   -H "Authorization: Bearer ${KL_CONTROL_TOKEN}" \
-  "http://localhost:${KL_CONTROL_PORT}/api/states/vnv/prod" \
+  "http://localhost:${KL_CONTROL_PORT}/v1/api/states/vnv/prod" \
   | jq -r '.states[] | select(.name=="big-state") | .coexistence_mode')"
 if [[ "${warn_mode}" != "warn" ]]; then
   echo "quick-compose smoke: expected big-state coexistence_mode=warn after policy_warn, got ${warn_mode:-<empty>}" >&2
@@ -157,11 +157,11 @@ EOF
 cat >"$tmp_cfg/backend.tf" <<EOF
 terraform {
   backend "http" {
-    address        = "http://localhost:${KL_API_PORT}/states/vnv/prod/quick-confirm-scope"
-    lock_address   = "http://localhost:${KL_API_PORT}/states/vnv/prod/quick-confirm-scope"
-    unlock_address = "http://localhost:${KL_API_PORT}/states/vnv/prod/quick-confirm-scope"
+    address        = "http://localhost:${KL_API_PORT}/v1/states/vnv/prod/quick-confirm-scope"
+    lock_address   = "http://localhost:${KL_API_PORT}/v1/states/vnv/prod/quick-confirm-scope"
+    unlock_address = "http://localhost:${KL_API_PORT}/v1/state-unlock/vnv/prod/quick-confirm-scope"
     lock_method    = "LOCK"
-    unlock_method  = "UNLOCK"
+    unlock_method  = "POST"
   }
 }
 EOF

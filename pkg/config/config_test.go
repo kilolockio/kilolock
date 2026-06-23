@@ -159,7 +159,7 @@ func TestPortalAuthResolution_MixedWithGoogleKeepsPasswordAndGoogle(t *testing.T
 		PortalAuthMode:               "mixed",
 		PortalOIDCGoogleClientID:     "client",
 		PortalOIDCGoogleClientSecret: "secret",
-		PortalOIDCGoogleRedirectURL:  "http://localhost:8091/portal/api/oidc/callback",
+		PortalOIDCGoogleRedirectURL:  "http://localhost:8091/v1/portal/api/oidc/callback",
 	}
 
 	if !c.ResolvedPortalPasswordAuthEnabled() {

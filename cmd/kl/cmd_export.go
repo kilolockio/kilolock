@@ -38,7 +38,7 @@ Flags:
 		fmt.Fprintln(os.Stderr, "kl export:", err)
 		return 1
 	}
-	raw, err := client.getBytes(ctx, "/states/"+stateName)
+	raw, err := client.getBytes(ctx, apiVersionPrefix+"/states/"+stateName)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kl export:", err)
 		return 1

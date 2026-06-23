@@ -102,9 +102,9 @@ terraform {
   backend "http" {
     address        = "http://localhost:8080/v1/states/example"
     lock_address   = "http://localhost:8080/v1/states/example"
-    unlock_address = "http://localhost:8080/v1/states/example"
+    unlock_address = "http://localhost:8080/v1/state-unlock/example"
     lock_method    = "LOCK"
-    unlock_method  = "UNLOCK"
+    unlock_method  = "POST"
   }
 }
 ```
@@ -113,8 +113,8 @@ For the default OSS quick-start and local `docker-compose`, use the standard
 Terraform HTTP backend lock flow:
 
 - `lock_method = "LOCK"`
-- `unlock_method = "UNLOCK"`
-- `unlock_address = ".../v1/states/..."`
+- `unlock_method = "POST"`
+- `unlock_address = ".../v1/state-unlock/..."`
 
 Then:
 

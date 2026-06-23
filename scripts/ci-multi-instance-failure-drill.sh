@@ -54,14 +54,14 @@ PREMIUM_TOKEN="$(docker compose exec -T kl kl admin token create --tenant drill 
 STATE_PAYLOAD='{"version":4,"terraform_version":"1.9.5","serial":1,"lineage":"00000000-0000-0000-0000-000000000001","outputs":{},"resources":[]}'
 
 # Prime both paths while premium DB is healthy.
-curl -sf -u "drill:${SHARED_TOKEN}" -H "Content-Type: application/json" -X POST --data "$STATE_PAYLOAD" "http://localhost:${KL_API_PORT}/states/smoke-shared" >/dev/null
-curl -sf -u "drill:${PREMIUM_TOKEN}" -H "Content-Type: application/json" -X POST --data "$STATE_PAYLOAD" "http://localhost:${KL_API_PORT}/states/smoke-premium" >/dev/null
+curl -sf -u "drill:${SHARED_TOKEN}" -H "Content-Type: application/json" -X POST --data "$STATE_PAYLOAD" "http://localhost:${KL_API_PORT}/v1/states/smoke-shared" >/dev/null
+curl -sf -u "drill:${PREMIUM_TOKEN}" -H "Content-Type: application/json" -X POST --data "$STATE_PAYLOAD" "http://localhost:${KL_API_PORT}/v1/states/smoke-premium" >/dev/null
 
 docker-compose -f docker-compose.prodlike.yml stop postgres-premium >/dev/null
 
 # Premium must fail (503), shared must continue to work.
 set +e
-PREMIUM_CODE="$(curl -s -o /tmp/kl-premium-out.txt -w '%{http_code}' -u "drill:${PREMIUM_TOKEN}" "http://localhost:${KL_API_PORT}/states/smoke-premium")"
+PREMIUM_CODE="$(curl -s -o /tmp/kl-premium-out.txt -w '%{http_code}' -u "drill:${PREMIUM_TOKEN}" "http://localhost:${KL_API_PORT}/v1/states/smoke-premium")"
 CURL_EXIT="$?"
 set -e
 assert_ok "$CURL_EXIT" "curl should reach kl endpoint for premium request"
@@ -71,7 +71,7 @@ if [[ "$PREMIUM_CODE" != "503" ]]; then
 fi
 
 set +e
-curl -sf -u "drill:${SHARED_TOKEN}" "http://localhost:${KL_API_PORT}/states/smoke-shared" >/dev/null
+curl -sf -u "drill:${SHARED_TOKEN}" "http://localhost:${KL_API_PORT}/v1/states/smoke-shared" >/dev/null
 SHARED_EXIT="$?"
 set -e
 assert_ok "$SHARED_EXIT" "shared request should succeed while premium DB is down"

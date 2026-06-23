@@ -15,7 +15,7 @@ func TestParseFileSettings_TopLevelKeys(t *testing.T) {
 	src := `
 # comment line
 database_url = "postgres://kl:kl@localhost:5432/kl?sslmode=disable"
-backend_address = "http://localhost:8080/states/big-state"
+backend_address = "http://localhost:8080/v1/states/big-state"
 `
 	got, err := parseFileSettings(strings.NewReader(src), "test")
 	if err != nil {
@@ -24,7 +24,7 @@ backend_address = "http://localhost:8080/states/big-state"
 	if want := "postgres://kl:kl@localhost:5432/kl?sslmode=disable"; got.DatabaseURL != want {
 		t.Errorf("DatabaseURL = %q, want %q", got.DatabaseURL, want)
 	}
-	if want := "http://localhost:8080/states/big-state"; got.BackendAddress != want {
+	if want := "http://localhost:8080/v1/states/big-state"; got.BackendAddress != want {
 		t.Errorf("BackendAddress = %q, want %q", got.BackendAddress, want)
 	}
 }
@@ -35,7 +35,7 @@ func TestParseFileSettings_SectionScopedKeys(t *testing.T) {
 url = "postgres://example/db"
 
 [backend]
-address = "http://infra.example/states/foo"
+address = "http://infra.example/v1/states/foo"
 `
 	got, err := parseFileSettings(strings.NewReader(src), "test")
 	if err != nil {
@@ -44,7 +44,7 @@ address = "http://infra.example/states/foo"
 	if got.DatabaseURL != "postgres://example/db" {
 		t.Errorf("DatabaseURL = %q", got.DatabaseURL)
 	}
-	if got.BackendAddress != "http://infra.example/states/foo" {
+	if got.BackendAddress != "http://infra.example/v1/states/foo" {
 		t.Errorf("BackendAddress = %q", got.BackendAddress)
 	}
 }

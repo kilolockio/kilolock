@@ -242,11 +242,11 @@ cp -R testdata/smoke/. "$TMP_DIR/"
 cat >"$TMP_DIR/backend.tf" <<EOF
 terraform {
   backend "http" {
-    address        = "$SERVER_URL/states/$STATE_NAME"
-    lock_address   = "$SERVER_URL/states/$STATE_NAME"
-    unlock_address = "$SERVER_URL/states/$STATE_NAME"
+    address        = "$SERVER_URL/v1/states/$STATE_NAME"
+    lock_address   = "$SERVER_URL/v1/states/$STATE_NAME"
+    unlock_address = "$SERVER_URL/v1/state-unlock/$STATE_NAME"
     lock_method    = "LOCK"
-    unlock_method  = "UNLOCK"
+    unlock_method  = "POST"
   }
 }
 EOF

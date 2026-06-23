@@ -60,7 +60,7 @@ migrate: build ## Apply pending schema migrations to the configured database.
 compose-up: ## Build and start Postgres + kl server (docker compose).
 	$(COMPOSE) up --build -d
 	@echo "Health:  curl -s http://localhost:8080/healthz"
-	@echo "API:     curl -s -H 'Authorization: Bearer \$${KL_AUTH_TOKEN:-dev-local-token-change-me}' http://localhost:8080/states/example"
+	@echo "API:     curl -s -H 'Authorization: Bearer \$${KL_AUTH_TOKEN:-dev-local-token-change-me}' http://localhost:8080/v1/states/example"
 
 .PHONY: compose-down
 compose-down: ## Stop the full docker compose stack.

@@ -7,7 +7,7 @@
 #   curl -s http://localhost:8080/healthz
 #
 # Example state call (no auth):
-#   curl -s http://localhost:8080/states/example
+#   curl -s http://localhost:8080/v1/states/example
 
 services:
   postgres:
