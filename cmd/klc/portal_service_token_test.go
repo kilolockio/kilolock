@@ -18,7 +18,7 @@ func TestWithAuth_AllowsPortalServiceToken(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/api/anything", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/api/anything", nil)
 	req.Header.Set("X-Kl-Portal-Service-Token", "portal-secret")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -35,7 +35,7 @@ func TestWithAuth_RejectsMissingAuth(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/api/anything", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/api/anything", nil)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusUnauthorized {

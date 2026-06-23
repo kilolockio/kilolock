@@ -104,7 +104,7 @@ func TestValidateEnvironmentStateAccess(t *testing.T) {
 
 func TestRequireGlobalScopeForIncludeInactive_NoPrincipalAllows(t *testing.T) {
 	s := &server{}
-	r := httptest.NewRequest("GET", "/api/tenants?include_inactive=true", nil)
+	r := httptest.NewRequest("GET", "/v1/api/tenants?include_inactive=true", nil)
 	w := httptest.NewRecorder()
 	if ok := s.requireGlobalScopeForIncludeInactive(w, r, "tenant.read"); !ok {
 		t.Fatalf("expected allow without scoped principal")

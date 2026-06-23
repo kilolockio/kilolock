@@ -229,7 +229,11 @@ function setMsg(kind,text){
 function clearMsg(){const el=document.getElementById('msg');el.className='msg';el.textContent=''}
 function escapeHtml(v){return String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'","&#39;")}
 function saveToken(){localStorage.setItem('kl_control_token',(ctrlToken.value||'').trim());setMsg('ok','Control token saved in browser localStorage.')}
+const controlAPIPrefix='/v1/api'
 async function j(url, opts={}){
+  if(url==='/api' || String(url||'').startsWith('/api/')){
+    url=controlAPIPrefix+String(url).slice(4)
+  }
   const h={'content-type':'application/json',...(opts.headers||{})}
   const t=token(); if(t) h['Authorization']='Bearer '+t
   const r=await fetch(url,{...opts,headers:h})

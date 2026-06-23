@@ -14,7 +14,7 @@ func TestRequirePermission_AllowsPortalServiceTokenForOwnershipTransferUpdate(t 
 	t.Setenv("KL_PORTAL_SERVICE_TOKEN", "portal-secret")
 	s := newServer(nil, config.Defaults(), slog.New(slog.NewTextHandler(io.Discard, nil)), "control-token")
 
-	req := httptest.NewRequest(http.MethodPost, "/api/ownership-transfers/example/accept", nil)
+	req := httptest.NewRequest(http.MethodPost, "/v1/api/ownership-transfers/example/accept", nil)
 	req.Header.Set("X-Kl-Portal-Service-Token", "portal-secret")
 	w := httptest.NewRecorder()
 

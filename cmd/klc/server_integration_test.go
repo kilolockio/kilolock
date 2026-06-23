@@ -116,7 +116,7 @@ func TestControlAPI_ScopeEnforcedOnCriticalRoutes(t *testing.T) {
 			"status":   "suspended",
 			"reason":   "itest scope check",
 		})
-		res := doAuthReq(t, ts.URL, adminSecret, http.MethodPost, "/api/tokens/lifecycle", body)
+		res := doAuthReq(t, ts.URL, adminSecret, http.MethodPost, "/v1/api/tokens/lifecycle", body)
 		defer res.Body.Close()
 		if res.StatusCode != http.StatusForbidden {
 			t.Fatalf("tokens/lifecycle cross-tenant status=%d want 403", res.StatusCode)
@@ -134,7 +134,7 @@ func TestControlAPI_ScopeEnforcedOnCriticalRoutes(t *testing.T) {
 			"status":   "suspended",
 			"reason":   "itest positive path",
 		})
-		res := doAuthReq(t, ts.URL, adminSecret, http.MethodPost, "/api/tokens/lifecycle", body)
+		res := doAuthReq(t, ts.URL, adminSecret, http.MethodPost, "/v1/api/tokens/lifecycle", body)
 		defer res.Body.Close()
 		if res.StatusCode != http.StatusOK {
 			t.Fatalf("tokens/lifecycle same-tenant status=%d want 200", res.StatusCode)
@@ -143,7 +143,7 @@ func TestControlAPI_ScopeEnforcedOnCriticalRoutes(t *testing.T) {
 
 	// 2) Tenant-scoped admin cannot list states for a different tenant env.
 	{
-		res := doAuthReq(t, ts.URL, adminSecret, http.MethodGet, "/api/states/"+beta+"/default", nil)
+		res := doAuthReq(t, ts.URL, adminSecret, http.MethodGet, "/v1/api/states/"+beta+"/default", nil)
 		defer res.Body.Close()
 		if res.StatusCode != http.StatusForbidden {
 			t.Fatalf("states cross-tenant status=%d want 403", res.StatusCode)
@@ -157,7 +157,7 @@ func TestControlAPI_ScopeEnforcedOnCriticalRoutes(t *testing.T) {
 			"status": "suspended",
 			"reason": "itest scope check",
 		})
-		res := doAuthReq(t, ts.URL, adminSecret, http.MethodPost, "/api/tenants/lifecycle", body)
+		res := doAuthReq(t, ts.URL, adminSecret, http.MethodPost, "/v1/api/tenants/lifecycle", body)
 		defer res.Body.Close()
 		if res.StatusCode != http.StatusForbidden {
 			t.Fatalf("tenant lifecycle cross-tenant status=%d want 403", res.StatusCode)
@@ -171,7 +171,7 @@ func TestControlAPI_ScopeEnforcedOnCriticalRoutes(t *testing.T) {
 			"status": "suspended",
 			"reason": "itest positive path",
 		})
-		res := doAuthReq(t, ts.URL, adminSecret, http.MethodPost, "/api/tenants/lifecycle", body)
+		res := doAuthReq(t, ts.URL, adminSecret, http.MethodPost, "/v1/api/tenants/lifecycle", body)
 		defer res.Body.Close()
 		if res.StatusCode != http.StatusOK {
 			t.Fatalf("tenant lifecycle same-tenant status=%d want 200", res.StatusCode)
@@ -180,14 +180,14 @@ func TestControlAPI_ScopeEnforcedOnCriticalRoutes(t *testing.T) {
 
 	// 4) Tenant-scoped admin can read its own tenant row, but not others.
 	{
-		res := doAuthReq(t, ts.URL, adminSecret, http.MethodGet, "/api/tenants/"+acme, nil)
+		res := doAuthReq(t, ts.URL, adminSecret, http.MethodGet, "/v1/api/tenants/"+acme, nil)
 		defer res.Body.Close()
 		if res.StatusCode != http.StatusOK {
 			t.Fatalf("tenant get same-tenant status=%d want 200", res.StatusCode)
 		}
 	}
 	{
-		res := doAuthReq(t, ts.URL, adminSecret, http.MethodGet, "/api/tenants/"+beta, nil)
+		res := doAuthReq(t, ts.URL, adminSecret, http.MethodGet, "/v1/api/tenants/"+beta, nil)
 		defer res.Body.Close()
 		if res.StatusCode != http.StatusForbidden {
 			t.Fatalf("tenant get cross-tenant status=%d want 403", res.StatusCode)
@@ -286,36 +286,36 @@ func TestControlAPI_AuthorizationSweep(t *testing.T) {
 		body       string
 		wantStatus int
 	}{
-		{"platform list tenants", platformSecret, http.MethodGet, "/api/tenants", "", http.StatusOK},
-		{"tenant-admin list tenants denied", tenantSecret, http.MethodGet, "/api/tenants", "", http.StatusForbidden},
-		{"readonly list envs same tenant", readonlySecret, http.MethodGet, "/api/tenants/" + acme + "/environments", "", http.StatusOK},
-		{"readonly list envs cross tenant denied", readonlySecret, http.MethodGet, "/api/tenants/" + beta + "/environments", "", http.StatusForbidden},
-		{"tenant-admin create env same tenant", tenantSecret, http.MethodPost, "/api/tenants/" + acme + "/environments", `{"slug":"qa","tier":"shared"}`, http.StatusCreated},
-		{"tenant-admin create env cross tenant denied", tenantSecret, http.MethodPost, "/api/tenants/" + beta + "/environments", `{"slug":"qa","tier":"shared"}`, http.StatusForbidden},
-		{"provisioner create env denied", provisionerSecret, http.MethodPost, "/api/tenants/" + acme + "/environments", `{"slug":"prov-denied","tier":"shared"}`, http.StatusForbidden},
-		{"tenant-admin list tokens same tenant", tenantSecret, http.MethodGet, "/api/tenants/" + acme + "/tokens", "", http.StatusOK},
-		{"tenant-admin list tokens cross tenant denied", tenantSecret, http.MethodGet, "/api/tenants/" + beta + "/tokens", "", http.StatusForbidden},
-		{"readonly create token denied", readonlySecret, http.MethodPost, "/api/tenants/" + acme + "/tokens", `{"environment":"default","name":"x"}`, http.StatusForbidden},
-		{"tenant-admin create token same tenant", tenantSecret, http.MethodPost, "/api/tenants/" + acme + "/tokens", `{"environment":"default","name":"new-token"}`, http.StatusCreated},
-		{"tenant-admin token lifecycle same tenant", tenantSecret, http.MethodPost, "/api/tokens/lifecycle", `{"token_id":"` + acmeTokenRow.ID + `","status":"suspended","reason":"itest"}`, http.StatusOK},
-		{"tenant-admin token delete same tenant", tenantSecret, http.MethodPost, "/api/tokens/lifecycle", `{"token_id":"` + acmeTokenRow.ID + `","status":"archived","reason":"itest"}`, http.StatusOK},
-		{"tenant-admin token lifecycle cross tenant denied", tenantSecret, http.MethodPost, "/api/tokens/lifecycle", `{"token_id":"` + betaTokenRow.ID + `","status":"suspended","reason":"itest"}`, http.StatusForbidden},
-		{"tenant-admin state config same tenant env", tenantSecret, http.MethodPost, "/api/states/" + acme + "/prod/config", `{"state":"qtest","coexistence_mode":"strict"}`, http.StatusOK},
-		{"readonly state config denied", readonlySecret, http.MethodPost, "/api/states/" + acme + "/prod/config", `{"state":"qtest","coexistence_mode":"strict"}`, http.StatusForbidden},
-		{"tenant-admin state config cross tenant denied", tenantSecret, http.MethodPost, "/api/states/" + beta + "/prod/config", `{"state":"qtest","coexistence_mode":"strict"}`, http.StatusForbidden},
-		{"readonly states same tenant env", readonlySecret, http.MethodGet, "/api/states/" + acme + "/prod", "", http.StatusOK},
-		{"readonly states cross tenant env denied", readonlySecret, http.MethodGet, "/api/states/" + beta + "/prod", "", http.StatusForbidden},
-		{"provisioner states read denied", provisionerSecret, http.MethodGet, "/api/states/" + acme + "/prod", "", http.StatusForbidden},
-		{"tenant-admin state delete same tenant env", tenantSecret, http.MethodPost, "/api/states/" + acme + "/prod/delete", `{"state":"qtest","reason":"itest"}`, http.StatusOK},
-		{"tenant-admin state delete cross tenant denied", tenantSecret, http.MethodPost, "/api/states/" + beta + "/prod/delete", `{"state":"qtest","reason":"itest"}`, http.StatusForbidden},
-		{"platform rbac grants list", platformSecret, http.MethodGet, "/api/rbac/grants", "", http.StatusOK},
-		{"tenant-admin rbac grants list denied", tenantSecret, http.MethodGet, "/api/rbac/grants", "", http.StatusForbidden},
-		{"platform iac versions", platformSecret, http.MethodGet, "/api/platform/iac-versions", "", http.StatusOK},
-		{"tenant-admin iac versions denied", tenantSecret, http.MethodGet, "/api/platform/iac-versions", "", http.StatusForbidden},
-		{"platform retention purge dry-run", platformSecret, http.MethodPost, "/api/retention/purge", `{"older_than_hours":24,"tenant":"` + acme + `","reason":"itest","apply":false}`, http.StatusOK},
-		{"tenant-admin retention purge denied", tenantSecret, http.MethodPost, "/api/retention/purge", `{"older_than_hours":24,"tenant":"` + acme + `","reason":"itest","apply":false}`, http.StatusForbidden},
-		{"tenant-admin include_inactive tokens denied", tenantSecret, http.MethodGet, "/api/tenants/" + acme + "/tokens?include_inactive=true", "", http.StatusForbidden},
-		{"tenant-admin include_inactive envs denied", tenantSecret, http.MethodGet, "/api/tenants/" + acme + "/environments?include_inactive=true", "", http.StatusForbidden},
+		{"platform list tenants", platformSecret, http.MethodGet, "/v1/api/tenants", "", http.StatusOK},
+		{"tenant-admin list tenants denied", tenantSecret, http.MethodGet, "/v1/api/tenants", "", http.StatusForbidden},
+		{"readonly list envs same tenant", readonlySecret, http.MethodGet, "/v1/api/tenants/" + acme + "/environments", "", http.StatusOK},
+		{"readonly list envs cross tenant denied", readonlySecret, http.MethodGet, "/v1/api/tenants/" + beta + "/environments", "", http.StatusForbidden},
+		{"tenant-admin create env same tenant", tenantSecret, http.MethodPost, "/v1/api/tenants/" + acme + "/environments", `{"slug":"qa","tier":"shared"}`, http.StatusCreated},
+		{"tenant-admin create env cross tenant denied", tenantSecret, http.MethodPost, "/v1/api/tenants/" + beta + "/environments", `{"slug":"qa","tier":"shared"}`, http.StatusForbidden},
+		{"provisioner create env denied", provisionerSecret, http.MethodPost, "/v1/api/tenants/" + acme + "/environments", `{"slug":"prov-denied","tier":"shared"}`, http.StatusForbidden},
+		{"tenant-admin list tokens same tenant", tenantSecret, http.MethodGet, "/v1/api/tenants/" + acme + "/tokens", "", http.StatusOK},
+		{"tenant-admin list tokens cross tenant denied", tenantSecret, http.MethodGet, "/v1/api/tenants/" + beta + "/tokens", "", http.StatusForbidden},
+		{"readonly create token denied", readonlySecret, http.MethodPost, "/v1/api/tenants/" + acme + "/tokens", `{"environment":"default","name":"x"}`, http.StatusForbidden},
+		{"tenant-admin create token same tenant", tenantSecret, http.MethodPost, "/v1/api/tenants/" + acme + "/tokens", `{"environment":"default","name":"new-token"}`, http.StatusCreated},
+		{"tenant-admin token lifecycle same tenant", tenantSecret, http.MethodPost, "/v1/api/tokens/lifecycle", `{"token_id":"` + acmeTokenRow.ID + `","status":"suspended","reason":"itest"}`, http.StatusOK},
+		{"tenant-admin token delete same tenant", tenantSecret, http.MethodPost, "/v1/api/tokens/lifecycle", `{"token_id":"` + acmeTokenRow.ID + `","status":"archived","reason":"itest"}`, http.StatusOK},
+		{"tenant-admin token lifecycle cross tenant denied", tenantSecret, http.MethodPost, "/v1/api/tokens/lifecycle", `{"token_id":"` + betaTokenRow.ID + `","status":"suspended","reason":"itest"}`, http.StatusForbidden},
+		{"tenant-admin state config same tenant env", tenantSecret, http.MethodPost, "/v1/api/states/" + acme + "/prod/config", `{"state":"qtest","coexistence_mode":"strict"}`, http.StatusOK},
+		{"readonly state config denied", readonlySecret, http.MethodPost, "/v1/api/states/" + acme + "/prod/config", `{"state":"qtest","coexistence_mode":"strict"}`, http.StatusForbidden},
+		{"tenant-admin state config cross tenant denied", tenantSecret, http.MethodPost, "/v1/api/states/" + beta + "/prod/config", `{"state":"qtest","coexistence_mode":"strict"}`, http.StatusForbidden},
+		{"readonly states same tenant env", readonlySecret, http.MethodGet, "/v1/api/states/" + acme + "/prod", "", http.StatusOK},
+		{"readonly states cross tenant env denied", readonlySecret, http.MethodGet, "/v1/api/states/" + beta + "/prod", "", http.StatusForbidden},
+		{"provisioner states read denied", provisionerSecret, http.MethodGet, "/v1/api/states/" + acme + "/prod", "", http.StatusForbidden},
+		{"tenant-admin state delete same tenant env", tenantSecret, http.MethodPost, "/v1/api/states/" + acme + "/prod/delete", `{"state":"qtest","reason":"itest"}`, http.StatusOK},
+		{"tenant-admin state delete cross tenant denied", tenantSecret, http.MethodPost, "/v1/api/states/" + beta + "/prod/delete", `{"state":"qtest","reason":"itest"}`, http.StatusForbidden},
+		{"platform rbac grants list", platformSecret, http.MethodGet, "/v1/api/rbac/grants", "", http.StatusOK},
+		{"tenant-admin rbac grants list denied", tenantSecret, http.MethodGet, "/v1/api/rbac/grants", "", http.StatusForbidden},
+		{"platform iac versions", platformSecret, http.MethodGet, "/v1/api/platform/iac-versions", "", http.StatusOK},
+		{"tenant-admin iac versions denied", tenantSecret, http.MethodGet, "/v1/api/platform/iac-versions", "", http.StatusForbidden},
+		{"platform retention purge dry-run", platformSecret, http.MethodPost, "/v1/api/retention/purge", `{"older_than_hours":24,"tenant":"` + acme + `","reason":"itest","apply":false}`, http.StatusOK},
+		{"tenant-admin retention purge denied", tenantSecret, http.MethodPost, "/v1/api/retention/purge", `{"older_than_hours":24,"tenant":"` + acme + `","reason":"itest","apply":false}`, http.StatusForbidden},
+		{"tenant-admin include_inactive tokens denied", tenantSecret, http.MethodGet, "/v1/api/tenants/" + acme + "/tokens?include_inactive=true", "", http.StatusForbidden},
+		{"tenant-admin include_inactive envs denied", tenantSecret, http.MethodGet, "/v1/api/tenants/" + acme + "/environments?include_inactive=true", "", http.StatusForbidden},
 	}
 
 	for _, tc := range cases {
@@ -385,7 +385,7 @@ func TestControlAPI_OwnershipTransfersByOperator(t *testing.T) {
 		"actor":              "operator@example.com",
 		"reason":             "customer requested move",
 	})
-	res := doAuthReq(t, ts.URL, "static-super-token", http.MethodPost, "/api/ownership-transfers", body)
+	res := doAuthReq(t, ts.URL, "static-super-token", http.MethodPost, "/v1/api/ownership-transfers", body)
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusCreated {
 		b, _ := io.ReadAll(res.Body)
@@ -399,7 +399,7 @@ func TestControlAPI_OwnershipTransfersByOperator(t *testing.T) {
 		t.Fatalf("decode created transfer: %v (%s)", err, string(raw))
 	}
 
-	listRes := doAuthReq(t, ts.URL, "static-super-token", http.MethodGet, "/api/ownership-transfers?tenant="+target+"&status=pending", nil)
+	listRes := doAuthReq(t, ts.URL, "static-super-token", http.MethodGet, "/v1/api/ownership-transfers?tenant="+target+"&status=pending", nil)
 	defer listRes.Body.Close()
 	if listRes.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(listRes.Body)
@@ -407,7 +407,7 @@ func TestControlAPI_OwnershipTransfersByOperator(t *testing.T) {
 	}
 
 	resolveBody, _ := json.Marshal(map[string]any{"actor": "operator@example.com", "target_new_slug": "prod-moved"})
-	acceptRes := doAuthReq(t, ts.URL, "static-super-token", http.MethodPost, "/api/ownership-transfers/"+created.Proposal.ID+"/accept", resolveBody)
+	acceptRes := doAuthReq(t, ts.URL, "static-super-token", http.MethodPost, "/v1/api/ownership-transfers/"+created.Proposal.ID+"/accept", resolveBody)
 	defer acceptRes.Body.Close()
 	if acceptRes.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(acceptRes.Body)

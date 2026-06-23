@@ -15,7 +15,7 @@ func TestPublicAPIGuard_ProdDefaultsToHidden(t *testing.T) {
 	s := newServer(nil, config.Config{InitMode: "prod"}, slog.New(slog.NewTextHandler(io.Discard, nil)), "token")
 	h := s.withPublicAPIGuard(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }))
 
-	req := httptest.NewRequest(http.MethodGet, "/api/tenants", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/api/tenants", nil)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusNotFound {
@@ -29,7 +29,7 @@ func TestPublicAPIGuard_AllowsPortalServiceToken(t *testing.T) {
 	s := newServer(nil, config.Config{InitMode: "prod"}, slog.New(slog.NewTextHandler(io.Discard, nil)), "token")
 	h := s.withPublicAPIGuard(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }))
 
-	req := httptest.NewRequest(http.MethodGet, "/api/tenants", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/api/tenants", nil)
 	req.Header.Set("X-Kl-Portal-Service-Token", "portal")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -43,7 +43,7 @@ func TestPublicAPIGuard_AllowsBearerTokenWhenProdHidden(t *testing.T) {
 	s := newServer(nil, config.Config{InitMode: "prod"}, slog.New(slog.NewTextHandler(io.Discard, nil)), "token")
 	h := s.withPublicAPIGuard(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }))
 
-	req := httptest.NewRequest(http.MethodGet, "/api/tenants", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/api/tenants", nil)
 	req.Header.Set("Authorization", "Bearer token")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -57,7 +57,7 @@ func TestPublicAPIGuard_EnabledExposesAPI(t *testing.T) {
 	s := newServer(nil, config.Config{InitMode: "prod"}, slog.New(slog.NewTextHandler(io.Discard, nil)), "token")
 	h := s.withPublicAPIGuard(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }))
 
-	req := httptest.NewRequest(http.MethodGet, "/api/tenants", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/api/tenants", nil)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
