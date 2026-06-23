@@ -34,6 +34,7 @@ func stateNameFromRequestPath(r *http.Request) string {
 		return ""
 	}
 	path = strings.TrimPrefix(path, "/")
+	path = strings.TrimPrefix(path, "v1/")
 	path = strings.TrimPrefix(path, "states/")
 	path = strings.TrimPrefix(path, "state-unlock/")
 	path = strings.TrimPrefix(path, "portal/")
