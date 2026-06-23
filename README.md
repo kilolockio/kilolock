@@ -31,6 +31,26 @@ That puts `kl`, `kld`, and `klc` on your shell `PATH` for the current repo
 checkout. If you prefer a system-wide install, copy the binaries from `./bin/`
 into a directory that is already on your `PATH`.
 
+## Versioning
+
+Kilolock derives its build version automatically from Git tags that match
+`vX.Y.Z`.
+
+- exact tag on `HEAD` -> `X.Y.Z`
+- commits after a tag -> next patch prerelease like `X.Y.(Z+1)-dev.N`
+- no tag yet -> `0.1.0-dev.N`
+
+Useful checks:
+
+```sh
+kl version
+kl version --json
+kld version --json
+curl -s http://localhost:8080/versionz
+```
+
+`/versionz` is the machine-readable runtime endpoint for the backend service.
+
 ## Quick Start
 
 ### Fastest local stack

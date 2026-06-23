@@ -5,11 +5,11 @@ MODULE          := github.com/kilolockio/kilolock
 BIN_DIR         := bin
 KL_BIN   := $(BIN_DIR)/kl
 KLD_BIN := $(BIN_DIR)/kld
-VERSION         ?= 0.0.0-dev
 GIT_COMMIT      ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
 GIT_DIRTY       ?= $(shell if [ -n "$$(git status --porcelain 2>/dev/null)" ]; then echo dirty; else echo clean; fi)
 BUILD_TIME      ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
-LDFLAGS         ?= -X 'main.version=$(VERSION)' -X 'main.buildCommit=$(GIT_COMMIT)' -X 'main.buildTime=$(BUILD_TIME)' -X 'main.buildDirty=$(GIT_DIRTY)'
+VERSION         ?= $(shell bash ./scripts/semver.sh)
+LDFLAGS         ?= -X 'github.com/kilolockio/kilolock/pkg/buildinfo.Version=$(VERSION)' -X 'github.com/kilolockio/kilolock/pkg/buildinfo.Commit=$(GIT_COMMIT)' -X 'github.com/kilolockio/kilolock/pkg/buildinfo.BuildTime=$(BUILD_TIME)' -X 'github.com/kilolockio/kilolock/pkg/buildinfo.Dirty=$(GIT_DIRTY)'
 
 # COMPOSE picks either the docker-compose v2 standalone binary or the
 # `docker compose` plugin form. Override with `make COMPOSE='docker compose' ...`
@@ -24,6 +24,10 @@ POSTGRES_DSN    ?= postgres://kl:kl@localhost:5432/kl?sslmode=disable
 help: ## Show this help.
 	@awk 'BEGIN {FS = ":.*##"; printf "Targets:\n"} \
 		/^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+
+.PHONY: version
+version: ## Print the derived semantic version for this checkout.
+	@printf '%s\n' "$(VERSION)"
 
 # ---------------------------------------------------------------------------
 # Local Postgres

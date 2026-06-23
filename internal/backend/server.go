@@ -25,6 +25,7 @@ import (
 	"github.com/kilolockio/kilolock/internal/refresh"
 	"github.com/kilolockio/kilolock/internal/routing"
 	"github.com/kilolockio/kilolock/pkg/auth"
+	"github.com/kilolockio/kilolock/pkg/buildinfo"
 	"github.com/kilolockio/kilolock/pkg/store"
 )
 
@@ -162,6 +163,7 @@ func (s *Server) Handler() http.Handler {
 
 	// Health endpoint for orchestrators and dev convenience.
 	mux.HandleFunc("GET /healthz", s.handleHealth)
+	mux.HandleFunc("GET /versionz", s.handleVersion)
 
 	// The backend protocol mounts every method at the same path,
 	// behind the auth middleware. Health does NOT need auth — it's
@@ -213,6 +215,12 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle(apiVersionPrefix+"/admin/reservations/{apply_id}/release", s.withAuth(http.HandlerFunc(s.handleAdminReservationsRelease)))
 
 	return mux
+}
+
+func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(buildinfo.Current("kld", "Kilolock Backend"))
 }
 
 func (s *Server) handleAdminStates(w http.ResponseWriter, r *http.Request) {

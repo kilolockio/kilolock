@@ -45,6 +45,29 @@ func TestHealth(t *testing.T) {
 	}
 }
 
+func TestVersion(t *testing.T) {
+	srv := newTestServer()
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/versionz", nil)
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Fatalf("cors header = %q, want *", got)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body not json: %v (%s)", err, w.Body.String())
+	}
+	if body["binary"] != "kld" {
+		t.Fatalf("body.binary = %v, want kld", body["binary"])
+	}
+	if body["version"] == "" {
+		t.Fatalf("body.version = empty")
+	}
+}
+
 func TestMethodNotAllowed(t *testing.T) {
 	srv := newTestServer()
 	w := httptest.NewRecorder()

@@ -17,6 +17,7 @@ import (
 
 	"github.com/kilolockio/kilolock/internal/backend"
 	"github.com/kilolockio/kilolock/internal/routing"
+	"github.com/kilolockio/kilolock/pkg/buildinfo"
 	"github.com/kilolockio/kilolock/pkg/config"
 	"github.com/kilolockio/kilolock/pkg/migrate"
 	"github.com/kilolockio/kilolock/pkg/store"
@@ -176,7 +177,7 @@ func runServe(args []string) int {
 
 	errs := make(chan error, 1)
 	go func() {
-		logger.Info("kld serve listening", "addr", cfg.ListenAddr, "version", version)
+		logger.Info("kld serve listening", "addr", cfg.ListenAddr, "version", buildinfo.Current("kld", "Kilolock Backend").Version)
 		if cfg.ResolvedTLSMode() == "required" {
 			errs <- srv.ListenAndServeTLS(cfg.TLSCertFile, cfg.TLSKeyFile)
 			return

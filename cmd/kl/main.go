@@ -26,22 +26,13 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
-	"runtime/debug"
 	"strings"
-)
 
-// version is the binary version. Overridden at build time via -ldflags.
-var version = "0.0.0-dev"
-
-// These are optionally overridden at build time via -ldflags. When they are
-// left empty, we fall back to Go's embedded VCS build info if available.
-var (
-	buildCommit = ""
-	buildTime   = ""
-	buildDirty  = ""
+	"github.com/kilolockio/kilolock/pkg/buildinfo"
 )
 
 func main() {
@@ -54,7 +45,7 @@ func main() {
 
 	switch sub {
 	case "version", "--version", "-v":
-		fmt.Println(versionString())
+		os.Exit(runVersion(args))
 	case "help", "--help", "-h":
 		printUsage(os.Stdout)
 	case "serve", "migrate", "provision":
@@ -163,46 +154,31 @@ Environment (overrides .kl.toml):
 }
 
 func versionString() string {
-	commit := strings.TrimSpace(buildCommit)
-	buildAt := strings.TrimSpace(buildTime)
-	dirty := strings.TrimSpace(buildDirty)
+	return buildinfo.Current("kl", "Kilolock CLI").ShortString()
+}
 
-	if info, ok := debug.ReadBuildInfo(); ok {
-		for _, setting := range info.Settings {
-			switch setting.Key {
-			case "vcs.revision":
-				if commit == "" {
-					commit = setting.Value
-				}
-			case "vcs.time":
-				if buildAt == "" {
-					buildAt = setting.Value
-				}
-			case "vcs.modified":
-				if dirty == "" {
-					if setting.Value == "true" {
-						dirty = "dirty"
-					} else if setting.Value == "false" {
-						dirty = "clean"
-					}
-				}
-			}
+func runVersion(args []string) int {
+	jsonOut := false
+	for _, arg := range args {
+		switch strings.TrimSpace(arg) {
+		case "--json":
+			jsonOut = true
+		case "":
+		default:
+			fmt.Fprintf(os.Stderr, "kl version: unknown flag %q\n", arg)
+			return 2
 		}
 	}
-
-	parts := []string{version}
-	if commit != "" {
-		short := commit
-		if len(short) > 12 {
-			short = short[:12]
+	info := buildinfo.Current("kl", "Kilolock CLI")
+	if jsonOut {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(info); err != nil {
+			fmt.Fprintln(os.Stderr, "kl version:", err)
+			return 1
 		}
-		parts = append(parts, "commit="+short)
+		return 0
 	}
-	if dirty != "" && dirty != "clean" {
-		parts = append(parts, dirty)
-	}
-	if buildAt != "" {
-		parts = append(parts, "built="+buildAt)
-	}
-	return strings.Join(parts, " ")
+	fmt.Println(info.ShortString())
+	return 0
 }
