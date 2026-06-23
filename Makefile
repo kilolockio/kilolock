@@ -9,7 +9,7 @@ GIT_COMMIT      ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unk
 GIT_DIRTY       ?= $(shell if [ -n "$$(git status --porcelain 2>/dev/null)" ]; then echo dirty; else echo clean; fi)
 BUILD_TIME      ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 VERSION         ?= $(shell bash ./scripts/semver.sh)
-LDFLAGS         ?= -X 'github.com/kilolockio/kilolock/pkg/buildinfo.Version=$(VERSION)' -X 'github.com/kilolockio/kilolock/pkg/buildinfo.Commit=$(GIT_COMMIT)' -X 'github.com/kilolockio/kilolock/pkg/buildinfo.BuildTime=$(BUILD_TIME)' -X 'github.com/kilolockio/kilolock/pkg/buildinfo.Dirty=$(GIT_DIRTY)'
+LDFLAGS         ?= -s -w -X 'github.com/kilolockio/kilolock/pkg/buildinfo.Version=$(VERSION)' -X 'github.com/kilolockio/kilolock/pkg/buildinfo.Commit=$(GIT_COMMIT)' -X 'github.com/kilolockio/kilolock/pkg/buildinfo.BuildTime=$(BUILD_TIME)' -X 'github.com/kilolockio/kilolock/pkg/buildinfo.Dirty=$(GIT_DIRTY)'
 
 # COMPOSE picks either the docker-compose v2 standalone binary or the
 # `docker compose` plugin form. Override with `make COMPOSE='docker compose' ...`
@@ -121,8 +121,8 @@ ci-quick-compose-smoke: ## CI smoke: quick compose health + control-plane policy
 .PHONY: build
 build: ## Build the client and server/runtime binaries into ./bin/.
 	@mkdir -p $(BIN_DIR)
-	$(GO) build -ldflags "$(LDFLAGS)" -o $(KL_BIN) ./cmd/kl
-	$(GO) build -ldflags "$(LDFLAGS)" -o $(KLD_BIN) ./cmd/kld
+	$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(KL_BIN) ./cmd/kl
+	$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(KLD_BIN) ./cmd/kld
 
 .PHONY: run
 run: ## Run the kl client CLI (passes ARGS through).
