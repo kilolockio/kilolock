@@ -215,7 +215,7 @@ type PlanSpec struct {
 
 	// StateName is the trunk state this plan applies to, derived
 	// from the http backend's address (last path segment of e.g.
-	// `http://…/states/big-state`). Lets `kl apply` work
+	// `http://…/v1/states/big-state`). Lets `kl apply` work
 	// without an explicit `--state=…`. May be empty for plans
 	// generated outside a `terraform init`-ed directory; in that
 	// case apply requires `--state=…` to be passed explicitly.

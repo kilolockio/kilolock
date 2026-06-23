@@ -19,7 +19,7 @@ func TestAPIClientDoJSON_SetsKilolockStateHeader(t *testing.T) {
 
 	c := &apiClient{baseURL: srv.URL}
 	var out map[string]any
-	if err := c.postJSON(context.Background(), "/admin/quota/check", "ws_x/env_y/demo", map[string]any{"x": 1}, &out); err != nil {
+	if err := c.postJSON(context.Background(), "/v1/admin/quota/check", "ws_x/env_y/demo", map[string]any{"x": 1}, &out); err != nil {
 		t.Fatalf("postJSON: %v", err)
 	}
 	if gotHeader != "ws_x/env_y/demo" {
@@ -38,7 +38,7 @@ func TestAPIClientDoJSON_UsesDefaultKilolockStateHeader(t *testing.T) {
 
 	c := &apiClient{baseURL: srv.URL, defaultStateName: "ws_x/env_y/demo"}
 	var out map[string]any
-	if err := c.postJSON(context.Background(), "/admin/query", "", map[string]any{"sql": "select 1"}, &out); err != nil {
+	if err := c.postJSON(context.Background(), "/v1/admin/query", "", map[string]any{"sql": "select 1"}, &out); err != nil {
 		t.Fatalf("postJSON: %v", err)
 	}
 	if gotHeader != "ws_x/env_y/demo" {

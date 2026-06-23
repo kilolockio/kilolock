@@ -25,7 +25,7 @@ func TestHandler_StaticTokenAuth(t *testing.T) {
 	})
 
 	t.Run("state without auth returns 401", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/states/x", nil)
+		req := httptest.NewRequest(http.MethodGet, "/v1/states/x", nil)
 		rec := httptest.NewRecorder()
 		s.Handler().ServeHTTP(rec, req)
 		if rec.Code != http.StatusUnauthorized {
@@ -42,7 +42,7 @@ func TestHandler_StaticTokenAuth(t *testing.T) {
 		sealed := New(nil, nil).
 			WithAvailabilityCheck(func(_ context.Context) (bool, error) { return false, nil }).
 			WithAuthenticator(auth.NewStaticTokenAuthenticator("test-secret"))
-		req := httptest.NewRequest(http.MethodGet, "/states/x", nil)
+		req := httptest.NewRequest(http.MethodGet, "/v1/states/x", nil)
 		rec := httptest.NewRecorder()
 		sealed.Handler().ServeHTTP(rec, req)
 		if rec.Code != http.StatusServiceUnavailable {

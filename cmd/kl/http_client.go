@@ -25,16 +25,19 @@ func newAPIClientFromBackend(cwd string) (*apiClient, error) {
 	if err != nil {
 		return nil, err
 	}
-	u, err := url.Parse(bi.Address)
+	base, err := baseURLFromAddress(bi.Address)
 	if err != nil {
-		return nil, fmt.Errorf("parse backend address: %w", err)
+		return nil, fmt.Errorf("derive backend base URL: %w", err)
 	}
-	base := (&url.URL{Scheme: u.Scheme, Host: u.Host}).String()
 	c := &apiClient{
 		baseURL:          strings.TrimRight(base, "/"),
 		username:         strings.TrimSpace(bi.Username),
 		password:         strings.TrimSpace(bi.Password),
 		defaultStateName: strings.TrimSpace(bi.StateName),
+	}
+	u, err := url.Parse(bi.Address)
+	if err != nil {
+		return nil, fmt.Errorf("parse backend address: %w", err)
 	}
 	if c.username == "" && c.password == "" && u.User != nil {
 		c.username = u.User.Username()
@@ -57,7 +60,7 @@ func newAPIClientWithToken(cwd, explicitToken string) (*apiClient, error) {
 		return newAPIClientForTarget(cwd, target, explicitToken)
 	}
 	if base := strings.TrimSpace(os.Getenv("KL_API_URL")); base != "" {
-		c := &apiClient{baseURL: strings.TrimRight(base, "/")}
+		c := &apiClient{baseURL: versionedBaseURL(base)}
 		applyAuthEnvOverrides(c, explicitToken)
 		return c, nil
 	}
@@ -83,7 +86,7 @@ func newAPIClientForTarget(cwd string, target stateTarget, explicitToken string)
 		return c, nil
 	}
 	if base := strings.TrimSpace(os.Getenv("KL_API_URL")); base != "" {
-		c := &apiClient{baseURL: strings.TrimRight(base, "/")}
+		c := &apiClient{baseURL: versionedBaseURL(base)}
 		applyAuthEnvOverrides(c, explicitToken)
 		return c, nil
 	}

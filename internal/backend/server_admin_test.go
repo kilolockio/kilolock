@@ -13,7 +13,7 @@ func TestHandleRoutingStats_GET(t *testing.T) {
 	s := New((*store.Store)(nil), nil).WithRoutingStatsProvider(func() map[string]any {
 		return map[string]any{"routing_cache_hits": uint64(3)}
 	})
-	req := httptest.NewRequest(http.MethodGet, "/admin/routing/stats", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/admin/routing/stats", nil)
 	w := httptest.NewRecorder()
 	s.handleRoutingStats(w, req)
 	if w.Code != http.StatusOK {
@@ -30,7 +30,7 @@ func TestHandleRoutingStats_GET(t *testing.T) {
 
 func TestHandleRoutingStats_MethodNotAllowed(t *testing.T) {
 	s := New((*store.Store)(nil), nil)
-	req := httptest.NewRequest(http.MethodPost, "/admin/routing/stats", nil)
+	req := httptest.NewRequest(http.MethodPost, "/v1/admin/routing/stats", nil)
 	w := httptest.NewRecorder()
 	s.handleRoutingStats(w, req)
 	if w.Code != http.StatusMethodNotAllowed {

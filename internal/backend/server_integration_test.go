@@ -219,20 +219,20 @@ func TestEndToEnd_PutGetDelete(t *testing.T) {
 	state := "smoke"
 
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/states/"+state, nil))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/states/"+state, nil))
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("initial GET status = %d, want 404", w.Code)
 	}
 
 	body := minimalState(1)
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/states/"+state, bytes.NewReader(body)))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/states/"+state, bytes.NewReader(body)))
 	if w.Code != http.StatusOK {
 		t.Fatalf("POST without lock status = %d, want 200 (body=%s)", w.Code, w.Body.String())
 	}
 
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/states/"+state, nil))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/states/"+state, nil))
 	if w.Code != http.StatusOK {
 		t.Fatalf("GET after POST status = %d, want 200", w.Code)
 	}
@@ -241,13 +241,13 @@ func TestEndToEnd_PutGetDelete(t *testing.T) {
 	}
 
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, "/states/"+state, nil))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, "/v1/states/"+state, nil))
 	if w.Code != http.StatusOK {
 		t.Fatalf("DELETE status = %d, want 200", w.Code)
 	}
 
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/states/"+state, nil))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/states/"+state, nil))
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("GET after DELETE status = %d, want 404", w.Code)
 	}
@@ -265,20 +265,20 @@ func TestEndToEnd_PutGetDelete_MultiSegmentStateName(t *testing.T) {
 	state := "vnv/prod/my_awesome_project"
 
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/states/"+state, nil))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/states/"+state, nil))
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("initial GET status = %d, want 404", w.Code)
 	}
 
 	body := minimalState(1)
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/states/"+state, bytes.NewReader(body)))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/states/"+state, bytes.NewReader(body)))
 	if w.Code != http.StatusOK {
 		t.Fatalf("POST without lock status = %d, want 200 (body=%s)", w.Code, w.Body.String())
 	}
 
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/states/"+state, nil))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/states/"+state, nil))
 	if w.Code != http.StatusOK {
 		t.Fatalf("GET after POST status = %d, want 200", w.Code)
 	}
@@ -287,13 +287,13 @@ func TestEndToEnd_PutGetDelete_MultiSegmentStateName(t *testing.T) {
 	}
 
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, "/states/"+state, nil))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, "/v1/states/"+state, nil))
 	if w.Code != http.StatusOK {
 		t.Fatalf("DELETE status = %d, want 200", w.Code)
 	}
 
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/states/"+state, nil))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/states/"+state, nil))
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("GET after DELETE status = %d, want 404", w.Code)
 	}
@@ -315,12 +315,12 @@ func TestEndToEnd_LockLifecycle(t *testing.T) {
 		Who:       "alice@laptop",
 		Version:   "1.13.4",
 		Created:   time.Now().UTC().Format(time.RFC3339Nano),
-		Path:      "kl://states/" + state,
+		Path:      "kl://v1/states/" + state,
 	}
 	infoJSON, _ := json.Marshal(info)
 
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("LOCK", "/states/"+state, bytes.NewReader(infoJSON)))
+	h.ServeHTTP(w, httptest.NewRequest("LOCK", "/v1/states/"+state, bytes.NewReader(infoJSON)))
 	if w.Code != http.StatusOK {
 		t.Fatalf("first LOCK status = %d, want 200 (body=%s)", w.Code, w.Body.String())
 	}
@@ -344,7 +344,7 @@ func TestEndToEnd_LockLifecycle(t *testing.T) {
 	conflictJSON, _ := json.Marshal(conflict)
 
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("LOCK", "/states/"+state, bytes.NewReader(conflictJSON)))
+	h.ServeHTTP(w, httptest.NewRequest("LOCK", "/v1/states/"+state, bytes.NewReader(conflictJSON)))
 	if w.Code != http.StatusLocked {
 		t.Fatalf("conflicting LOCK status = %d, want 423", w.Code)
 	}
@@ -358,19 +358,19 @@ func TestEndToEnd_LockLifecycle(t *testing.T) {
 
 	body := minimalState(1)
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/states/"+state, bytes.NewReader(body)))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/states/"+state, bytes.NewReader(body)))
 	if w.Code != http.StatusLocked {
 		t.Errorf("POST without lock id while locked: status = %d, want 423", w.Code)
 	}
 
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/states/"+state+"?ID=wrong", bytes.NewReader(body)))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/states/"+state+"?ID=wrong", bytes.NewReader(body)))
 	if w.Code != http.StatusConflict {
 		t.Errorf("POST with wrong lock id: status = %d, want 409", w.Code)
 	}
 
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/states/"+state+"?ID="+info.ID, bytes.NewReader(body)))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/states/"+state+"?ID="+info.ID, bytes.NewReader(body)))
 	if w.Code != http.StatusOK {
 		t.Errorf("POST with correct lock id: status = %d, want 200 (body=%s)", w.Code, w.Body.String())
 	}
@@ -379,19 +379,19 @@ func TestEndToEnd_LockLifecycle(t *testing.T) {
 	wrong.ID = "wrong"
 	wrongJSON, _ := json.Marshal(wrong)
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("UNLOCK", "/states/"+state, bytes.NewReader(wrongJSON)))
+	h.ServeHTTP(w, httptest.NewRequest("UNLOCK", "/v1/states/"+state, bytes.NewReader(wrongJSON)))
 	if w.Code != http.StatusConflict {
 		t.Errorf("UNLOCK with wrong id: status = %d, want 409", w.Code)
 	}
 
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("UNLOCK", "/states/"+state, bytes.NewReader(infoJSON)))
+	h.ServeHTTP(w, httptest.NewRequest("UNLOCK", "/v1/states/"+state, bytes.NewReader(infoJSON)))
 	if w.Code != http.StatusOK {
 		t.Errorf("UNLOCK with correct id: status = %d, want 200", w.Code)
 	}
 
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/states/"+state, bytes.NewReader(minimalState(2))))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/states/"+state, bytes.NewReader(minimalState(2))))
 	if w.Code != http.StatusOK {
 		t.Errorf("POST without lock after UNLOCK: status = %d, want 200", w.Code)
 	}
@@ -410,7 +410,7 @@ func TestEndToEnd_NormalizationProjectsRowsAndEdges(t *testing.T) {
 	body := stateWithGraph(1)
 
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/states/"+state, bytes.NewReader(body)))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/states/"+state, bytes.NewReader(body)))
 	if w.Code != http.StatusOK {
 		t.Fatalf("POST status = %d, want 200 (body=%s)", w.Code, w.Body.String())
 	}
@@ -468,7 +468,7 @@ func TestEndToEnd_NormalizationProjectsRowsAndEdges(t *testing.T) {
 	// re-parses the JSON either way, so semantic equality is the
 	// contract.
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/states/"+state, nil))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/states/"+state, nil))
 	if w.Code != http.StatusOK {
 		t.Fatalf("GET status = %d, want 200", w.Code)
 	}
@@ -499,19 +499,19 @@ func TestEndToEnd_ForceUnlock_EmptyBody(t *testing.T) {
 		Who:       "alice@laptop",
 		Version:   "1.13.4",
 		Created:   time.Now().UTC().Format(time.RFC3339Nano),
-		Path:      "kl://states/" + state,
+		Path:      "kl://v1/states/" + state,
 	}
 	infoJSON, _ := json.Marshal(info)
 
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("LOCK", "/states/"+state, bytes.NewReader(infoJSON)))
+	h.ServeHTTP(w, httptest.NewRequest("LOCK", "/v1/states/"+state, bytes.NewReader(infoJSON)))
 	if w.Code != http.StatusOK {
 		t.Fatalf("initial LOCK status = %d, want 200", w.Code)
 	}
 
 	// Empty-body UNLOCK -- this is the wire shape terraform force-unlock
 	// produces. Must succeed regardless of which ID Bob thinks the lock has.
-	req := httptest.NewRequest("UNLOCK", "/states/"+state, http.NoBody)
+	req := httptest.NewRequest("UNLOCK", "/v1/states/"+state, http.NoBody)
 	req.Header.Set("User-Agent", "Terraform/1.13.4")
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -555,7 +555,7 @@ func TestEndToEnd_ForceUnlock_EmptyBody(t *testing.T) {
 
 	// Second force-unlock should be a no-op success (idempotent).
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("UNLOCK", "/states/"+state, http.NoBody))
+	h.ServeHTTP(w, httptest.NewRequest("UNLOCK", "/v1/states/"+state, http.NoBody))
 	if w.Code != http.StatusOK {
 		t.Errorf("second force-unlock status = %d, want 200", w.Code)
 	}
@@ -577,13 +577,13 @@ func TestEndToEnd_ForceUnlock_EmptyJSON(t *testing.T) {
 	info := store.LockInfo{ID: "lock-empty-json", Who: "alice", Operation: "OperationTypeApply"}
 	infoJSON, _ := json.Marshal(info)
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("LOCK", "/states/"+state, bytes.NewReader(infoJSON)))
+	h.ServeHTTP(w, httptest.NewRequest("LOCK", "/v1/states/"+state, bytes.NewReader(infoJSON)))
 	if w.Code != http.StatusOK {
 		t.Fatalf("LOCK status = %d, want 200", w.Code)
 	}
 
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("UNLOCK", "/states/"+state, bytes.NewReader([]byte("{}"))))
+	h.ServeHTTP(w, httptest.NewRequest("UNLOCK", "/v1/states/"+state, bytes.NewReader([]byte("{}"))))
 	if w.Code != http.StatusOK {
 		t.Errorf("UNLOCK with empty JSON status = %d, want 200", w.Code)
 	}
@@ -605,18 +605,18 @@ func TestEndToEnd_Unlock_PlainStringID(t *testing.T) {
 		Who:       "alice@laptop",
 		Version:   "1.13.4",
 		Created:   time.Now().UTC().Format(time.RFC3339Nano),
-		Path:      "kl://states/" + state,
+		Path:      "kl://v1/states/" + state,
 	}
 	infoJSON, _ := json.Marshal(info)
 
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("LOCK", "/states/"+state, bytes.NewReader(infoJSON)))
+	h.ServeHTTP(w, httptest.NewRequest("LOCK", "/v1/states/"+state, bytes.NewReader(infoJSON)))
 	if w.Code != http.StatusOK {
 		t.Fatalf("LOCK status = %d, want 200", w.Code)
 	}
 
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("UNLOCK", "/states/"+state, strings.NewReader(info.ID)))
+	h.ServeHTTP(w, httptest.NewRequest("UNLOCK", "/v1/states/"+state, strings.NewReader(info.ID)))
 	if w.Code != http.StatusOK {
 		t.Fatalf("UNLOCK with plain string id status = %d, want 200 (body=%s)", w.Code, w.Body.String())
 	}
@@ -638,18 +638,18 @@ func TestEndToEnd_Unlock_JSONStringID(t *testing.T) {
 		Who:       "alice@laptop",
 		Version:   "1.13.4",
 		Created:   time.Now().UTC().Format(time.RFC3339Nano),
-		Path:      "kl://states/" + state,
+		Path:      "kl://v1/states/" + state,
 	}
 	infoJSON, _ := json.Marshal(info)
 
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("LOCK", "/states/"+state, bytes.NewReader(infoJSON)))
+	h.ServeHTTP(w, httptest.NewRequest("LOCK", "/v1/states/"+state, bytes.NewReader(infoJSON)))
 	if w.Code != http.StatusOK {
 		t.Fatalf("LOCK status = %d, want 200", w.Code)
 	}
 
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("UNLOCK", "/states/"+state, strings.NewReader(`"`+info.ID+`"`)))
+	h.ServeHTTP(w, httptest.NewRequest("UNLOCK", "/v1/states/"+state, strings.NewReader(`"`+info.ID+`"`)))
 	if w.Code != http.StatusOK {
 		t.Fatalf("UNLOCK with JSON string id status = %d, want 200 (body=%s)", w.Code, w.Body.String())
 	}
@@ -671,18 +671,18 @@ func TestEndToEnd_Unlock_QueryIDWithoutBody(t *testing.T) {
 		Who:       "alice@laptop",
 		Version:   "1.13.4",
 		Created:   time.Now().UTC().Format(time.RFC3339Nano),
-		Path:      "kl://states/" + state,
+		Path:      "kl://v1/states/" + state,
 	}
 	infoJSON, _ := json.Marshal(info)
 
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("LOCK", "/states/"+state, bytes.NewReader(infoJSON)))
+	h.ServeHTTP(w, httptest.NewRequest("LOCK", "/v1/states/"+state, bytes.NewReader(infoJSON)))
 	if w.Code != http.StatusOK {
 		t.Fatalf("LOCK status = %d, want 200", w.Code)
 	}
 
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("UNLOCK", "/states/"+state+"?ID="+info.ID, http.NoBody))
+	h.ServeHTTP(w, httptest.NewRequest("UNLOCK", "/v1/states/"+state+"?ID="+info.ID, http.NoBody))
 	if w.Code != http.StatusOK {
 		t.Fatalf("UNLOCK with query id status = %d, want 200 (body=%s)", w.Code, w.Body.String())
 	}
@@ -701,7 +701,7 @@ func TestEndToEnd_ForceUnlock_NoLockHeld(t *testing.T) {
 	h := srv.Handler()
 
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("UNLOCK", "/states/does-not-exist", http.NoBody))
+	h.ServeHTTP(w, httptest.NewRequest("UNLOCK", "/v1/states/does-not-exist", http.NoBody))
 	if w.Code != http.StatusOK {
 		t.Errorf("force-unlock against nonexistent state status = %d, want 200", w.Code)
 	}
@@ -723,7 +723,7 @@ func TestEndToEnd_Unlock_OwnerReleasePreserved(t *testing.T) {
 	info := store.LockInfo{ID: "lock-owner", Who: "alice", Operation: "OperationTypeApply"}
 	infoJSON, _ := json.Marshal(info)
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("LOCK", "/states/"+state, bytes.NewReader(infoJSON)))
+	h.ServeHTTP(w, httptest.NewRequest("LOCK", "/v1/states/"+state, bytes.NewReader(infoJSON)))
 	if w.Code != http.StatusOK {
 		t.Fatalf("LOCK status = %d, want 200", w.Code)
 	}
@@ -732,13 +732,13 @@ func TestEndToEnd_Unlock_OwnerReleasePreserved(t *testing.T) {
 	wrong.ID = "not-the-real-id"
 	wrongJSON, _ := json.Marshal(wrong)
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("UNLOCK", "/states/"+state, bytes.NewReader(wrongJSON)))
+	h.ServeHTTP(w, httptest.NewRequest("UNLOCK", "/v1/states/"+state, bytes.NewReader(wrongJSON)))
 	if w.Code != http.StatusConflict {
 		t.Errorf("UNLOCK with wrong ID status = %d, want 409", w.Code)
 	}
 
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("UNLOCK", "/states/"+state, bytes.NewReader(infoJSON)))
+	h.ServeHTTP(w, httptest.NewRequest("UNLOCK", "/v1/states/"+state, bytes.NewReader(infoJSON)))
 	if w.Code != http.StatusOK {
 		t.Errorf("UNLOCK with correct ID status = %d, want 200", w.Code)
 	}
@@ -827,7 +827,7 @@ func TestEndToEnd_Lifecycle_ResourceChangeClosesAndReopens(t *testing.T) {
 	post := func(serial int64, body []byte) {
 		t.Helper()
 		w := httptest.NewRecorder()
-		h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/states/"+state, bytes.NewReader(body)))
+		h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/states/"+state, bytes.NewReader(body)))
 		if w.Code != http.StatusOK {
 			t.Fatalf("POST serial=%d status=%d body=%s", serial, w.Code, w.Body.String())
 		}
@@ -953,13 +953,13 @@ func TestEndToEnd_SerialAutoBumped(t *testing.T) {
 	body := minimalState(5)
 
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/states/"+state, bytes.NewReader(body)))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/states/"+state, bytes.NewReader(body)))
 	if w.Code != http.StatusOK {
 		t.Fatalf("first POST status = %d, want 200", w.Code)
 	}
 
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/states/"+state, bytes.NewReader(body)))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/states/"+state, bytes.NewReader(body)))
 	if w.Code != http.StatusOK {
 		t.Errorf("repeat POST status = %d, want 200 (serial auto-bumped)", w.Code)
 	}
@@ -1004,13 +1004,13 @@ func TestEndToEnd_TenantSuspended_BlocksMutations(t *testing.T) {
 	state := "tenant-suspended"
 
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/states/"+state, bytes.NewReader(minimalState(1))))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/states/"+state, bytes.NewReader(minimalState(1))))
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("POST status = %d, want 403 (body=%s)", w.Code, w.Body.String())
 	}
 
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, "/states/"+state, nil))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, "/v1/states/"+state, nil))
 	if w.Code != http.StatusForbidden && w.Code != http.StatusNotFound {
 		// Either is acceptable: the lifecycle check may run before state lookup,
 		// so DELETE is forbidden even for missing state.
@@ -1018,7 +1018,7 @@ func TestEndToEnd_TenantSuspended_BlocksMutations(t *testing.T) {
 	}
 
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("LOCK", "/states/"+state, bytes.NewBufferString(`{"ID":"lock-1","Operation":"OperationTypeApply"}`)))
+	h.ServeHTTP(w, httptest.NewRequest("LOCK", "/v1/states/"+state, bytes.NewBufferString(`{"ID":"lock-1","Operation":"OperationTypeApply"}`)))
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("LOCK status = %d, want 403 (body=%s)", w.Code, w.Body.String())
 	}
@@ -1059,7 +1059,7 @@ func TestEndToEnd_QuotaExceeded_ReturnsReadableForbidden(t *testing.T) {
 	h := srv.Handler()
 
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/states/quota-hit", bytes.NewReader(body)))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/states/quota-hit", bytes.NewReader(body)))
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("POST status = %d, want 403 (body=%s)", w.Code, w.Body.String())
 	}

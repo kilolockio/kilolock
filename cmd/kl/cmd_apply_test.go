@@ -257,7 +257,7 @@ func TestDiscoverApplyStateName_PrefersBackendOverStaleSpec(t *testing.T) {
   "backend": {
     "type": "http",
     "config": {
-      "address": "http://localhost:8080/states/ws_0fb018ee0c37/env_bba69410e14b/blarg"
+      "address": "http://localhost:8080/v1/states/ws_0fb018ee0c37/env_bba69410e14b/blarg"
     }
   }
 }`

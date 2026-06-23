@@ -49,9 +49,9 @@ That file is meant for the default OSS quick-start stack: one runtime on
 The backend method shape used in this repo is intentionally the same one we
 recommend for hosted/cloud deployments:
 
-- state reads/writes: `GET` / `POST` on `/states/...`
-- lock acquire: `LOCK` on `/states/...`
-- lock release: `POST` on `/state-unlock/...`
+- state reads/writes: `GET` / `POST` on `/v1/states/...`
+- lock acquire: `LOCK` on `/v1/states/...`
+- lock release: `POST` on `/v1/state-unlock/...`
 
 This means the default OSS `docker-compose` flow can stay exactly as it is.
 You do **not** need one backend block for local compose and another one for
@@ -138,7 +138,7 @@ Then:
 11. Fill in:
    - `username = "ws_..."`
    - `password = "kl_..."`
-   - backend path `.../states/{workspace_id}/{env_public_id}/big-state`
+   - backend path `.../v1/states/{workspace_id}/{env_public_id}/big-state`
 12. Run:
 
 ```sh
@@ -156,12 +156,12 @@ Why does this example use:
 ```hcl
 lock_method    = "LOCK"
 unlock_method  = "POST"
-unlock_address = ".../state-unlock/..."
+unlock_address = ".../v1/state-unlock/..."
 ```
 
 Because some managed edges and load balancers are happy to pass through
 nonstandard `LOCK` but reject `UNLOCK` requests with a body before they ever
-reach Kilolock. The dedicated `POST /state-unlock/...` route avoids that issue
+reach Kilolock. The dedicated `POST /v1/state-unlock/...` route avoids that issue
 while keeping the backend behavior the same.
 
 Today Kilolock does **not** expose a matching `POST /state-lock/...` alias, so
@@ -215,9 +215,9 @@ To point at a different `kld` instance, override at init time:
 
 ```sh
 terraform init -reconfigure \
-  -backend-config="address=http://kl.example.internal/states/big-state" \
-  -backend-config="lock_address=http://kl.example.internal/states/big-state" \
-  -backend-config="unlock_address=http://kl.example.internal/state-unlock/big-state"
+  -backend-config="address=http://kl.example.internal/v1/states/big-state" \
+  -backend-config="lock_address=http://kl.example.internal/v1/states/big-state" \
+  -backend-config="unlock_address=http://kl.example.internal/v1/state-unlock/big-state"
 ```
 
 ---

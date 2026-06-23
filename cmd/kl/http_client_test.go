@@ -11,7 +11,7 @@ func TestNewAPIClientFromBackend_UsesTFHTTPEnvAuth(t *testing.T) {
 	body := `
 terraform {
   backend "http" {
-    address  = "http://localhost:18080/states/big-state"
+    address  = "http://localhost:18080/v1/states/big-state"
     username = "cfg-user"
     password = "cfg-pass"
   }
@@ -40,7 +40,7 @@ func TestNewAPIClientFromBackend_UsesTFHTTPAddressOverride(t *testing.T) {
 	body := `
 terraform {
   backend "http" {
-    address = "http://localhost:18080/states/old-state"
+    address = "http://localhost:18080/v1/states/old-state"
   }
 }
 `
@@ -48,13 +48,13 @@ terraform {
 		t.Fatalf("write: %v", err)
 	}
 
-	t.Setenv("TF_HTTP_ADDRESS", "https://api.kilolock.cloud/states/ws_123/env_456/demo")
+	t.Setenv("TF_HTTP_ADDRESS", "https://api.kilolock.cloud/v1/states/ws_123/env_456/demo")
 	c, err := newAPIClientFromBackend(dir)
 	if err != nil {
 		t.Fatalf("newAPIClientFromBackend: %v", err)
 	}
-	if c.baseURL != "https://api.kilolock.cloud" {
-		t.Fatalf("baseURL=%q want https://api.kilolock.cloud", c.baseURL)
+	if c.baseURL != "https://api.kilolock.cloud/v1" {
+		t.Fatalf("baseURL=%q want https://api.kilolock.cloud/v1", c.baseURL)
 	}
 	if c.defaultStateName != "ws_123/env_456/demo" {
 		t.Fatalf("defaultStateName=%q want ws_123/env_456/demo", c.defaultStateName)

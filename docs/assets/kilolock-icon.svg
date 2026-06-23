@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Kilolock icon</title>
+  <desc id="desc">A geometric lock built from angled infrastructure-style blocks, with a K-shaped negative space in the center.</desc>
+  <defs>
+    <linearGradient id="frame" x1="96" y1="72" x2="416" y2="440" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#204b57"/>
+      <stop offset="1" stop-color="#0f2f39"/>
+    </linearGradient>
+    <linearGradient id="topFace" x1="136" y1="136" x2="352" y2="136" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2cb79e"/>
+      <stop offset="1" stop-color="#198972"/>
+    </linearGradient>
+    <linearGradient id="leftFace" x1="116" y1="176" x2="256" y2="388" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#19907a"/>
+      <stop offset="1" stop-color="#106553"/>
+    </linearGradient>
+    <linearGradient id="rightFace" x1="256" y1="176" x2="396" y2="388" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#145f51"/>
+      <stop offset="1" stop-color="#0c3b33"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#10262d" flood-opacity="0.24"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#shadow)">
+    <path d="M176 170c0-57 36-94 80-94s80 37 80 94v30h-38v-30c0-35-19-57-42-57s-42 22-42 57v30h-38z" fill="url(#frame)"/>
+
+    <path d="M146 188h220l38 38-148 198h-148l38-198z" fill="url(#leftFace)"/>
+    <path d="M366 188h-220l-38 38 148 198 148-198-38-38z" fill="url(#rightFace)" opacity=".95"/>
+    <path d="M146 188l110-46 110 46-110 46z" fill="url(#topFace)"/>
+
+    <path d="M210 226h34v62l44-62h39l-56 76 60 84h-40l-47-65v65h-34z" fill="#f3fbf8"/>
+
+    <path d="M256 142l110 46 38 38-20 27-30-30-98-41-98 41-30 30-20-27 38-38z" fill="#effaf7" opacity=".16"/>
+  </g>
+</svg>

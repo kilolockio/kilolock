@@ -56,7 +56,7 @@ func TestQuotaClientAndState_UsesLiveBackendConfig(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "backend.tf"), []byte(`
 terraform {
   backend "http" {
-    address = "https://api.kilolock.cloud/states/ws_123/env_456/demo"
+    address = "https://api.kilolock.cloud/v1/states/ws_123/env_456/demo"
   }
 }
 `), 0o644); err != nil {
@@ -71,8 +71,8 @@ terraform {
 	if stateName != "ws_123/env_456/demo" {
 		t.Fatalf("stateName=%q want ws_123/env_456/demo", stateName)
 	}
-	if client.baseURL != "https://api.kilolock.cloud" {
-		t.Fatalf("baseURL=%q want https://api.kilolock.cloud", client.baseURL)
+	if client.baseURL != "https://api.kilolock.cloud/v1" {
+		t.Fatalf("baseURL=%q want https://api.kilolock.cloud/v1", client.baseURL)
 	}
 	if client.password != "env-pass" {
 		t.Fatalf("password=%q want env-pass", client.password)

@@ -48,7 +48,7 @@ func TestHealth(t *testing.T) {
 func TestMethodNotAllowed(t *testing.T) {
 	srv := newTestServer()
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPatch, "/states/example", nil)
+	req := httptest.NewRequest(http.MethodPatch, "/v1/states/example", nil)
 	srv.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d, want 405", w.Code)
@@ -64,7 +64,7 @@ func TestMethodNotAllowed(t *testing.T) {
 func TestPost_BadJSON(t *testing.T) {
 	srv := newTestServer()
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/states/example",
+	req := httptest.NewRequest(http.MethodPost, "/v1/states/example",
 		bytes.NewBufferString("this is not json"))
 	srv.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
@@ -75,7 +75,7 @@ func TestPost_BadJSON(t *testing.T) {
 func TestPost_BadJSON_MultiSegmentStateName(t *testing.T) {
 	srv := newTestServer()
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/states/vnv/prod/my_awesome_project",
+	req := httptest.NewRequest(http.MethodPost, "/v1/states/vnv/prod/my_awesome_project",
 		bytes.NewBufferString("not json"))
 	srv.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
@@ -98,7 +98,7 @@ func TestStatePathMustMatchAuthenticatedEnvironment(t *testing.T) {
 		Source:              "test",
 	}})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/states/balik/gra/my-awesome-project", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/states/balik/gra/my-awesome-project", nil)
 	srv.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403 (body=%s)", w.Code, w.Body.String())
@@ -121,7 +121,7 @@ func TestStatePathAllowsAuthenticatedEnvironmentPrefix(t *testing.T) {
 		return nil, fmt.Errorf("store unavailable")
 	})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/states/ws_abc123/env_def456/my-awesome-project", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/states/ws_abc123/env_def456/my-awesome-project", nil)
 	srv.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503 once path validation passes (body=%s)", w.Code, w.Body.String())
@@ -131,7 +131,7 @@ func TestStatePathAllowsAuthenticatedEnvironmentPrefix(t *testing.T) {
 func TestLock_MissingID(t *testing.T) {
 	srv := newTestServer()
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest("LOCK", "/states/example",
+	req := httptest.NewRequest("LOCK", "/v1/states/example",
 		bytes.NewBufferString(`{"Operation":"OperationTypePlan"}`))
 	srv.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
@@ -146,7 +146,7 @@ func TestUnlock_BadJSON(t *testing.T) {
 	// requires a real store.
 	srv := newTestServer()
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest("UNLOCK", "/states/example",
+	req := httptest.NewRequest("UNLOCK", "/v1/states/example",
 		bytes.NewBufferString("not json at all"))
 	srv.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {

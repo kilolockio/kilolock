@@ -7,7 +7,7 @@ import (
 )
 
 func TestResolveStateTarget_UsesKLStateURLWhenNoPositional(t *testing.T) {
-	t.Setenv("KL_STATE_URL", "https://api.kilolock.cloud/states/ws_123/env_456/demo")
+	t.Setenv("KL_STATE_URL", "https://api.kilolock.cloud/v1/states/ws_123/env_456/demo")
 
 	target, discovered, err := resolveStateTarget("", ".")
 	if err != nil {
@@ -19,15 +19,15 @@ func TestResolveStateTarget_UsesKLStateURLWhenNoPositional(t *testing.T) {
 	if target.StateName != "ws_123/env_456/demo" {
 		t.Fatalf("state name = %q", target.StateName)
 	}
-	if target.BaseURL != "https://api.kilolock.cloud" {
+	if target.BaseURL != "https://api.kilolock.cloud/v1" {
 		t.Fatalf("base URL = %q", target.BaseURL)
 	}
 }
 
 func TestResolveStateTarget_PositionalURLWins(t *testing.T) {
-	t.Setenv("KL_STATE_URL", "https://api.kilolock.cloud/states/ws_env/ignored")
+	t.Setenv("KL_STATE_URL", "https://api.kilolock.cloud/v1/states/ws_env/ignored")
 
-	target, discovered, err := resolveStateTarget("https://other.example/states/ws_999/env_888/demo", ".")
+	target, discovered, err := resolveStateTarget("https://other.example/v1/states/ws_999/env_888/demo", ".")
 	if err != nil {
 		t.Fatalf("resolveStateTarget: %v", err)
 	}
@@ -37,7 +37,7 @@ func TestResolveStateTarget_PositionalURLWins(t *testing.T) {
 	if target.StateName != "ws_999/env_888/demo" {
 		t.Fatalf("state name = %q", target.StateName)
 	}
-	if target.BaseURL != "https://other.example" {
+	if target.BaseURL != "https://other.example/v1" {
 		t.Fatalf("base URL = %q", target.BaseURL)
 	}
 }
@@ -47,7 +47,7 @@ func TestResolveStateTarget_FallsBackToBackend(t *testing.T) {
 	body := `
 terraform {
   backend "http" {
-    address  = "https://api.kilolock.cloud/states/ws_123/env_456/demo"
+    address  = "https://api.kilolock.cloud/v1/states/ws_123/env_456/demo"
     username = "cfg-user"
     password = "cfg-pass"
   }
@@ -67,7 +67,7 @@ terraform {
 	if target.StateName != "ws_123/env_456/demo" {
 		t.Fatalf("state name = %q", target.StateName)
 	}
-	if target.BaseURL != "https://api.kilolock.cloud" {
+	if target.BaseURL != "https://api.kilolock.cloud/v1" {
 		t.Fatalf("base URL = %q", target.BaseURL)
 	}
 	if target.Username != "cfg-user" || target.Password != "cfg-pass" {

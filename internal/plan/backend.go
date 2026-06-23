@@ -40,13 +40,13 @@ type BackendInfo struct {
 	Type string
 
 	// Address is the unmodified backend address from the init
-	// state file (e.g. "http://localhost:8080/states/big-state").
+	// state file (e.g. "http://localhost:8080/v1/states/big-state").
 	Address string
 
 	// StateName is the Kilolock state name implied by Address,
 	// used as the default value for `kl apply --state=…`.
-	// For HTTP backend addresses under `/states/...`, this is the
-	// full path suffix after `/states/` so hierarchical names like
+	// For HTTP backend addresses under `/v1/states/...`, this is the
+	// full path suffix after `/v1/states/` so hierarchical names like
 	// `ws_.../env_.../name` survive intact.
 	StateName string
 
@@ -253,16 +253,16 @@ func stringConfig(m map[string]any, key string) string {
 // stateNameFromAddress extracts the Kilolock state name from the
 // backend URL.
 //
-// For Kilolock backends, the canonical path is `/states/<name>`,
+// For Kilolock backends, the canonical path is `/v1/states/<name>`,
 // where `<name>` may itself contain slashes:
 //
-//	http://localhost:8080/states/big-state                               → big-state
-//	http://localhost:8080/states/ws_123/env_456/blarg                    → ws_123/env_456/blarg
-//	http://kl.example/states/ws_123/env_456/blarg?x=1            → ws_123/env_456/blarg
+//	http://localhost:8080/v1/states/big-state                               → big-state
+//	http://localhost:8080/v1/states/ws_123/env_456/blarg                    → ws_123/env_456/blarg
+//	http://kl.example/v1/states/ws_123/env_456/blarg?x=1            → ws_123/env_456/blarg
 //
 // Returns an error for malformed URLs or addresses with no path.
 // We use net/url so query strings and fragments are stripped
-// safely. If the URL is not under `/states/`, we fall back to the
+// safely. If the URL is not under `/v1/states/`, we fall back to the
 // legacy "last path segment" behavior.
 func stateNameFromAddress(addr string) (string, error) {
 	u, err := url.Parse(addr)
@@ -273,8 +273,8 @@ func stateNameFromAddress(addr string) (string, error) {
 	if p == "" || p == "/" {
 		return "", fmt.Errorf("address has no path segment to use as state name")
 	}
-	if i := strings.Index(p, "/states/"); i >= 0 {
-		name := strings.Trim(strings.TrimPrefix(p[i:], "/states/"), "/")
+	if i := strings.Index(p, "/v1/states/"); i >= 0 {
+		name := strings.Trim(strings.TrimPrefix(p[i:], "/v1/states/"), "/")
 		if name == "" {
 			return "", fmt.Errorf("address path %q ends without a state name segment", u.Path)
 		}

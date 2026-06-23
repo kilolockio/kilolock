@@ -7,6 +7,8 @@ import (
 	"strings"
 )
 
+const apiVersionPrefix = "/v1"
+
 type stateTarget struct {
 	StateName string
 	BaseURL   string
@@ -107,5 +109,13 @@ func baseURLFromAddress(addr string) (string, error) {
 	if strings.TrimSpace(u.Scheme) == "" || strings.TrimSpace(u.Host) == "" {
 		return "", fmt.Errorf("address %q is not an absolute URL", addr)
 	}
-	return strings.TrimRight((&url.URL{Scheme: u.Scheme, Host: u.Host}).String(), "/"), nil
+	return versionedBaseURL((&url.URL{Scheme: u.Scheme, Host: u.Host}).String()), nil
+}
+
+func versionedBaseURL(base string) string {
+	base = strings.TrimRight(strings.TrimSpace(base), "/")
+	if strings.HasSuffix(base, apiVersionPrefix) {
+		return base
+	}
+	return base + apiVersionPrefix
 }

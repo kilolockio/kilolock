@@ -80,9 +80,9 @@ Primary runbook:
 ```hcl
 terraform {
   backend "http" {
-    address        = "http://localhost:8080/states/example"
-    lock_address   = "http://localhost:8080/states/example"
-    unlock_address = "http://localhost:8080/states/example"
+    address        = "http://localhost:8080/v1/states/example"
+    lock_address   = "http://localhost:8080/v1/states/example"
+    unlock_address = "http://localhost:8080/v1/states/example"
     lock_method    = "LOCK"
     unlock_method  = "UNLOCK"
   }
@@ -94,7 +94,7 @@ Terraform HTTP backend lock flow:
 
 - `lock_method = "LOCK"`
 - `unlock_method = "UNLOCK"`
-- `unlock_address = ".../states/..."`
+- `unlock_address = ".../v1/states/..."`
 
 Then:
 

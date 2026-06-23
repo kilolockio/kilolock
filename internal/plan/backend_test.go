@@ -22,12 +22,12 @@ func TestStateNameFromAddress_HappyPaths(t *testing.T) {
 		addr string
 		want string
 	}{
-		{"http://localhost:8080/states/big-state", "big-state"},
-		{"http://localhost:8080/states/ws_0fb018ee0c37/env_bba69410e14b/blarg", "ws_0fb018ee0c37/env_bba69410e14b/blarg"},
-		{"http://localhost:8080/states/ws_0fb018ee0c37/env_bba69410e14b/blarg?x=1", "ws_0fb018ee0c37/env_bba69410e14b/blarg"},
-		{"http://kl.example/states/prod/", "prod"},
-		{"http://kl.example/states/prod?x=1", "prod"},
-		{"https://kl.example/states/prod-big-1", "prod-big-1"},
+		{"http://localhost:8080/v1/states/big-state", "big-state"},
+		{"http://localhost:8080/v1/states/ws_0fb018ee0c37/env_bba69410e14b/blarg", "ws_0fb018ee0c37/env_bba69410e14b/blarg"},
+		{"http://localhost:8080/v1/states/ws_0fb018ee0c37/env_bba69410e14b/blarg?x=1", "ws_0fb018ee0c37/env_bba69410e14b/blarg"},
+		{"http://kl.example/v1/states/prod/", "prod"},
+		{"http://kl.example/v1/states/prod?x=1", "prod"},
+		{"https://kl.example/v1/states/prod-big-1", "prod-big-1"},
 		{"http://kl.example/with/longer/path/segments/foo", "foo"},
 	}
 	for _, c := range cases {
@@ -69,9 +69,9 @@ const initStateHTTP = `{
   "backend": {
     "type": "http",
     "config": {
-      "address": "http://localhost:8080/states/big-state",
-      "lock_address": "http://localhost:8080/states/big-state",
-      "unlock_address": "http://localhost:8080/states/big-state"
+      "address": "http://localhost:8080/v1/states/big-state",
+      "lock_address": "http://localhost:8080/v1/states/big-state",
+      "unlock_address": "http://localhost:8080/v1/states/big-state"
     },
     "hash": 1351920819
   }
@@ -83,9 +83,9 @@ const initStateHTTPHierarchical = `{
   "backend": {
     "type": "http",
     "config": {
-      "address": "http://localhost:8080/states/ws_0fb018ee0c37/env_bba69410e14b/blarg",
-      "lock_address": "http://localhost:8080/states/ws_0fb018ee0c37/env_bba69410e14b/blarg",
-      "unlock_address": "http://localhost:8080/states/ws_0fb018ee0c37/env_bba69410e14b/blarg"
+      "address": "http://localhost:8080/v1/states/ws_0fb018ee0c37/env_bba69410e14b/blarg",
+      "lock_address": "http://localhost:8080/v1/states/ws_0fb018ee0c37/env_bba69410e14b/blarg",
+      "unlock_address": "http://localhost:8080/v1/states/ws_0fb018ee0c37/env_bba69410e14b/blarg"
     },
     "hash": 1351920819
   }
@@ -97,7 +97,7 @@ const initStateHTTPAuth = `{
   "backend": {
     "type": "http",
     "config": {
-      "address": "http://localhost:8080/states/big-state",
+      "address": "http://localhost:8080/v1/states/big-state",
       "username": "tenant-a",
       "password": "secret-a"
     },
@@ -129,7 +129,7 @@ func TestDiscoverBackend_HTTP(t *testing.T) {
 	if got.Type != "http" {
 		t.Errorf("Type = %q", got.Type)
 	}
-	if got.Address != "http://localhost:8080/states/big-state" {
+	if got.Address != "http://localhost:8080/v1/states/big-state" {
 		t.Errorf("Address = %q", got.Address)
 	}
 	if got.StateName != "big-state" {
@@ -170,7 +170,7 @@ func TestDiscoverBackend_HTTP_FallsBackToBackendHCLAuth(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "backend.tf"), []byte(`
 terraform {
   backend "http" {
-    address  = "http://localhost:8080/states/big-state"
+    address  = "http://localhost:8080/v1/states/big-state"
     username = "hcl-user"
     password = "hcl-pass"
   }
@@ -195,7 +195,7 @@ func TestDiscoverBackendConfig_HTTP(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "backend.tf"), []byte(`
 terraform {
   backend "http" {
-    address  = "https://api.kilolock.cloud/states/ws_123/env_456/demo"
+    address  = "https://api.kilolock.cloud/v1/states/ws_123/env_456/demo"
     username = "cfg-user"
     password = "cfg-pass"
   }
@@ -207,7 +207,7 @@ terraform {
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
-	if got.Address != "https://api.kilolock.cloud/states/ws_123/env_456/demo" {
+	if got.Address != "https://api.kilolock.cloud/v1/states/ws_123/env_456/demo" {
 		t.Errorf("Address = %q", got.Address)
 	}
 	if got.StateName != "ws_123/env_456/demo" {
@@ -266,7 +266,7 @@ func TestFetchCurrentStateFromBackend_BasicAuth(t *testing.T) {
 	defer srv.Close()
 
 	raw, err := FetchCurrentStateFromBackend(context.Background(), &BackendInfo{
-		Address:  srv.URL + "/states/x",
+		Address:  srv.URL + "/v1/states/x",
 		Username: "u1",
 		Password: "p1",
 	})
@@ -290,7 +290,7 @@ func TestFetchCurrentStateFromBackend_UsesAddressCredentials(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	addr := strings.Replace(srv.URL, "http://", "http://url-user:url-pass@", 1) + "/states/x"
+	addr := strings.Replace(srv.URL, "http://", "http://url-user:url-pass@", 1) + "/v1/states/x"
 	raw, err := FetchCurrentStateFromBackend(context.Background(), &BackendInfo{
 		Address: addr,
 	})
@@ -317,7 +317,7 @@ func TestFetchCurrentStateFromBackend_UsesTFHTTPEnvAuth(t *testing.T) {
 	defer srv.Close()
 
 	raw, err := FetchCurrentStateFromBackend(context.Background(), &BackendInfo{
-		Address:  srv.URL + "/states/x",
+		Address:  srv.URL + "/v1/states/x",
 		Username: "cfg-user",
 		Password: "cfg-pass",
 	})
@@ -336,7 +336,7 @@ func TestFetchCurrentStateFromBackend_404ReturnsEmptyState(t *testing.T) {
 	defer srv.Close()
 
 	raw, err := FetchCurrentStateFromBackend(context.Background(), &BackendInfo{
-		Address: srv.URL + "/states/missing",
+		Address: srv.URL + "/v1/states/missing",
 	})
 	if err != nil {
 		t.Fatalf("err: %v", err)

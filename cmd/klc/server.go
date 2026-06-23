@@ -25,6 +25,8 @@ import (
 	"github.com/kilolockio/kilolock/pkg/store"
 )
 
+const apiVersionPrefix = "/v1"
+
 type server struct {
 	control            *store.Store
 	cfg                config.Config
@@ -72,9 +74,9 @@ func muxHandler(s *server) http.Handler {
 	mux.HandleFunc("/", s.handleUI)
 	mux.HandleFunc("/portal", s.handlePortalUI)
 	mux.HandleFunc("/portal/", s.handlePortalUI)
-	mux.HandleFunc("/portal/api", s.handlePortalAPI)
-	mux.HandleFunc("/portal/api/", s.handlePortalAPI)
-	mux.Handle("/api/", s.withPublicAPIGuard(s.withAuth(http.HandlerFunc(s.handleAPI))))
+	mux.HandleFunc(apiVersionPrefix+"/portal/api", s.handlePortalAPI)
+	mux.HandleFunc(apiVersionPrefix+"/portal/api/", s.handlePortalAPI)
+	mux.Handle(apiVersionPrefix+"/api/", s.withPublicAPIGuard(s.withAuth(http.HandlerFunc(s.handleAPI))))
 	return mux
 }
 
@@ -135,7 +137,7 @@ func (s *server) isPortalServiceRequest(r *http.Request) bool {
 }
 
 func (s *server) handleAPI(w http.ResponseWriter, r *http.Request) {
-	path := strings.TrimPrefix(r.URL.Path, "/api")
+	path := strings.TrimPrefix(r.URL.Path, apiVersionPrefix+"/api")
 	permission, guarded := requiredPermissionForRoute(r.Method, path)
 	if !guarded {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
@@ -266,7 +268,7 @@ func (s *server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && strings.HasPrefix(path, "/states/"):
 		parts := strings.Split(strings.TrimPrefix(path, "/states/"), "/")
 		if len(parts) != 2 {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "path must be /api/states/{tenant}/{environment}"})
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "path must be /v1/api/states/{tenant}/{environment}"})
 			return
 		}
 		if !s.requirePermission(w, r, permission, parts[0], parts[1]) {
@@ -276,7 +278,7 @@ func (s *server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && strings.HasPrefix(path, "/states/") && strings.HasSuffix(path, "/delete"):
 		parts := strings.Split(strings.TrimSuffix(strings.TrimPrefix(path, "/states/"), "/delete"), "/")
 		if len(parts) != 2 {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "path must be /api/states/{tenant}/{environment}/delete"})
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "path must be /v1/api/states/{tenant}/{environment}/delete"})
 			return
 		}
 		if !s.requirePermission(w, r, permission, parts[0], parts[1]) {
@@ -286,7 +288,7 @@ func (s *server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && strings.HasPrefix(path, "/states/") && strings.HasSuffix(path, "/destroy"):
 		parts := strings.Split(strings.TrimSuffix(strings.TrimPrefix(path, "/states/"), "/destroy"), "/")
 		if len(parts) != 2 {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "path must be /api/states/{tenant}/{environment}/destroy"})
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "path must be /v1/api/states/{tenant}/{environment}/destroy"})
 			return
 		}
 		if !s.requirePermission(w, r, permission, parts[0], parts[1]) {
@@ -296,7 +298,7 @@ func (s *server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && strings.HasPrefix(path, "/states/") && strings.HasSuffix(path, "/lifecycle"):
 		parts := strings.Split(strings.TrimSuffix(strings.TrimPrefix(path, "/states/"), "/lifecycle"), "/")
 		if len(parts) != 2 {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "path must be /api/states/{tenant}/{environment}/lifecycle"})
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "path must be /v1/api/states/{tenant}/{environment}/lifecycle"})
 			return
 		}
 		if !s.requirePermission(w, r, permission, parts[0], parts[1]) {
@@ -306,7 +308,7 @@ func (s *server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && strings.HasPrefix(path, "/states/") && strings.HasSuffix(path, "/config"):
 		parts := strings.Split(strings.TrimSuffix(strings.TrimPrefix(path, "/states/"), "/config"), "/")
 		if len(parts) != 2 {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "path must be /api/states/{tenant}/{environment}/config"})
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "path must be /v1/api/states/{tenant}/{environment}/config"})
 			return
 		}
 		if !s.requirePermission(w, r, permission, parts[0], parts[1]) {
@@ -1925,7 +1927,7 @@ func (s *server) requirePortalUser(w http.ResponseWriter, r *http.Request) (stor
 }
 
 func (s *server) handlePortalAPI(w http.ResponseWriter, r *http.Request) {
-	path := strings.TrimPrefix(r.URL.Path, "/portal/api")
+	path := strings.TrimPrefix(r.URL.Path, apiVersionPrefix+"/portal/api")
 	switch {
 	case r.Method == http.MethodGet && path == "/auth/config":
 		writeJSON(w, http.StatusOK, portalauth.FromRuntimeConfig(s.cfg))
@@ -2334,7 +2336,7 @@ func (s *server) handlePortalAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		reqBody, _ := json.Marshal(map[string]any{"state": in.State, "actor": u.Email, "reason": "portal action"})
-		req, _ := http.NewRequest(http.MethodPost, "/api/states/"+u.TenantSlug+"/"+in.Environment+"/delete", bytes.NewReader(reqBody))
+		req, _ := http.NewRequest(http.MethodPost, "/v1/api/states/"+u.TenantSlug+"/"+in.Environment+"/delete", bytes.NewReader(reqBody))
 		req.Header = r.Header.Clone()
 		req = req.WithContext(r.Context())
 		s.apiStateDelete(w, req, u.TenantSlug, in.Environment)
