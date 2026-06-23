@@ -71,7 +71,7 @@ docker-compose -f docker-compose.prodlike.yml exec klc klc init \
 
 Primary runbook:
 
-- `docs/runbooks/self-hosted-bootstrap.md`
+- [docs/runbooks/self-hosted-bootstrap.md](./docs/runbooks/self-hosted-bootstrap.md)
 
 ## First Useful Workflow
 
@@ -165,7 +165,7 @@ kl apply abort --state example --latest
 
 Runbook for stuck applies:
 
-- `docs/runbooks/apply-abort.md`
+- [docs/runbooks/apply-abort.md](./docs/runbooks/apply-abort.md)
 
 ## Examples
 
@@ -239,23 +239,23 @@ values from `.kl.toml`.
 
 ### Start here
 
-- `docs/runbooks/self-hosted-bootstrap.md`
-- `examples/big-state/README.md`
-- `docs/runbooks/control-api.md`
+- [docs/runbooks/self-hosted-bootstrap.md](./docs/runbooks/self-hosted-bootstrap.md)
+- [examples/big-state/README.md](./examples/big-state/README.md)
+- [docs/runbooks/control-api.md](./docs/runbooks/control-api.md)
 
 ### Operator runbooks
 
-- `docs/runbooks/apply-abort.md`
-- `docs/runbooks/resource-level-emergency-repair.md`
-- `docs/runbooks/execution-plane-audit-checklist.md`
-- `docs/runbooks/oss-first-release-checklist.md`
+- [docs/runbooks/apply-abort.md](./docs/runbooks/apply-abort.md)
+- [docs/runbooks/resource-level-emergency-repair.md](./docs/runbooks/resource-level-emergency-repair.md)
+- [docs/runbooks/execution-plane-audit-checklist.md](./docs/runbooks/execution-plane-audit-checklist.md)
+- [docs/runbooks/oss-first-release-checklist.md](./docs/runbooks/oss-first-release-checklist.md)
 
 ### Architecture and reference
 
-- `docs/protocol.md`
-- `docs/schema.md`
-- `docs/terraform-compatibility.md`
-- `docs/adr/`
+- [docs/protocol.md](./docs/protocol.md)
+- [docs/schema.md](./docs/schema.md)
+- [docs/terraform-compatibility.md](./docs/terraform-compatibility.md)
+- [docs/adr/](./docs/adr/)
 
 ## Roadmap
 
@@ -269,10 +269,10 @@ Current OSS shape:
 If you want the detailed implementation history and design rationale, start
 with:
 
-- `docs/adr/0006-refresh-implementation.md`
-- `docs/adr/0007-parallel-apply.md`
-- `docs/adr/0014-file-scoped-plan-apply.md`
-- `docs/adr/0015-control-plane-separation.md`
+- [docs/adr/0006-refresh-implementation.md](./docs/adr/0006-refresh-implementation.md)
+- [docs/adr/0007-parallel-apply.md](./docs/adr/0007-parallel-apply.md)
+- [docs/adr/0014-file-scoped-plan-apply.md](./docs/adr/0014-file-scoped-plan-apply.md)
+- [docs/adr/0015-control-plane-separation.md](./docs/adr/0015-control-plane-separation.md)
 
 ## Scope
 
