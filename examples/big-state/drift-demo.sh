@@ -80,7 +80,7 @@ from urllib.parse import urlparse
 import sys
 u = urlparse(sys.argv[1].strip())
 path = u.path.strip("/")
-prefix = "states/"
+prefix = "v1/states/"
 if path.startswith(prefix):
     print(path[len(prefix):])
 else:
