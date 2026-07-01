@@ -832,15 +832,26 @@ func (s *Server) handleStateEngineApplyRunBegin(w http.ResponseWriter, r *http.R
 		return
 	}
 	stateID := strings.TrimSpace(in.StateID)
+	fromVersionID := strings.TrimSpace(in.FromVersionID)
 	if stateID == "" {
-		info, err := st.ResolveStateEngineStateInfo(r.Context(), name)
+		info, err := st.EnsureCurrentStateInfo(r.Context(), name)
 		if err != nil {
 			s.handleStateEngineStoreError(w, r, name, "resolve state-engine apply state", err)
 			return
 		}
 		stateID = info.StateID
+		if fromVersionID == "" {
+			fromVersionID = info.VersionID
+		}
+	} else if fromVersionID == "" {
+		info, err := st.EnsureCurrentStateInfo(r.Context(), name)
+		if err != nil {
+			s.handleStateEngineStoreError(w, r, name, "resolve state-engine apply state", err)
+			return
+		}
+		fromVersionID = info.VersionID
 	}
-	run, err := st.BeginApplyRun(r.Context(), stateID, in.FromVersionID, in.Actor, in.SourceSerial, in.Info)
+	run, err := st.BeginApplyRun(r.Context(), stateID, fromVersionID, in.Actor, in.SourceSerial, in.Info)
 	if err != nil {
 		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return

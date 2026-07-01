@@ -11,6 +11,7 @@ import (
 
 	"github.com/kilolockio/kilolock/internal/plan"
 	"github.com/kilolockio/kilolock/internal/slice"
+	"github.com/kilolockio/kilolock/pkg/auth"
 	"github.com/kilolockio/kilolock/pkg/store"
 )
 
@@ -138,6 +139,9 @@ func releaseStateEngineCoarseLock(
 ) {
 	fctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	if principal, ok := auth.FromContext(ctx); ok {
+		fctx = auth.WithPrincipal(fctx, principal)
+	}
 	if err := st.ReleaseStateEngineLock(fctx, stateName, applyID, actor); err != nil {
 		logger.Warn("release state-engine coarse lock failed", "apply_id", applyID, "state", stateName, "err", err)
 		return
