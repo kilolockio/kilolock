@@ -60,9 +60,14 @@ import (
 // observed, even if the operator's shell env has drifted.
 //
 // terraformBin defaults to "terraform" on $PATH when empty.
-func runTerraform(ctx context.Context, dir, terraformBin string, noColor bool, targets []string, vars map[string]json.RawMessage, pluginCacheDir string, logSink *bytes.Buffer) error {
+type terraformRunIntent struct {
+	ExactWriteSet []string
+	DeleteSet     []string
+}
+
+func runTerraform(ctx context.Context, dir, terraformBin string, noColor bool, targets []string, vars map[string]json.RawMessage, pluginCacheDir string, logSink *bytes.Buffer) (*terraformRunIntent, error) {
 	if dir == "" {
-		return fmt.Errorf("runTerraform: dir is empty")
+		return nil, fmt.Errorf("runTerraform: dir is empty")
 	}
 	if terraformBin == "" {
 		terraformBin = "terraform"
@@ -84,7 +89,7 @@ func runTerraform(ctx context.Context, dir, terraformBin string, noColor bool, t
 	// modules but to treat this workspace as freshly bound to the local
 	// backend, avoiding migration prompts during orchestrated apply.
 	if err := runOne(ctx, dir, terraformBin, []string{"init", "-input=false", "-reconfigure", noColorFlag(noColor)}, buildTerraformEnv(pluginCacheDir), stream, logSink); err != nil {
-		return fmt.Errorf("terraform init: %w", err)
+		return nil, fmt.Errorf("terraform init: %w", err)
 	}
 	if stream != nil {
 		fmt.Fprintf(os.Stderr, "kl apply: terraform init done in %s\n", time.Since(initStart).Round(time.Millisecond))
@@ -93,8 +98,9 @@ func runTerraform(ctx context.Context, dir, terraformBin string, noColor bool, t
 	if stream != nil && len(targets) > 0 {
 		fmt.Fprintln(os.Stderr, "kl apply: validating targeted replan…")
 	}
-	if err := validateReplanMatchesTargets(ctx, dir, terraformBin, targets, vars, pluginCacheDir, stream != nil); err != nil {
-		return err
+	intent, err := validateReplanMatchesTargets(ctx, dir, terraformBin, targets, vars, pluginCacheDir, stream != nil)
+	if err != nil {
+		return nil, err
 	}
 
 	args := []string{"apply", "-auto-approve", "-input=false", "-refresh=false", noColorFlag(noColor)}
@@ -110,12 +116,12 @@ func runTerraform(ctx context.Context, dir, terraformBin string, noColor bool, t
 	}
 	applyStart := time.Now()
 	if err := runOne(ctx, dir, terraformBin, args, buildTerraformEnv(pluginCacheDir), stream, logSink); err != nil {
-		return fmt.Errorf("terraform apply: %w", err)
+		return nil, fmt.Errorf("terraform apply: %w", err)
 	}
 	if stream != nil {
 		fmt.Fprintf(os.Stderr, "kl apply: terraform apply done in %s\n", time.Since(applyStart).Round(time.Millisecond))
 	}
-	return nil
+	return intent, nil
 }
 
 // validateReplanMatchesTargets runs a terraform plan inside the apply
@@ -124,17 +130,17 @@ func runTerraform(ctx context.Context, dir, terraformBin string, noColor bool, t
 // This is a correctness guard against stale plan specs, variable drift,
 // or any other mismatch between "what the operator planned" and what
 // the apply workspace would actually change.
-func validateReplanMatchesTargets(ctx context.Context, dir, terraformBin string, targets []string, vars map[string]json.RawMessage, pluginCacheDir string, verbose bool) error {
+func validateReplanMatchesTargets(ctx context.Context, dir, terraformBin string, targets []string, vars map[string]json.RawMessage, pluginCacheDir string, verbose bool) (*terraformRunIntent, error) {
 	// Empty targets means "full apply"; in that mode the check isn't
 	// meaningful (it would require comparing full action lists) and is
 	// intentionally skipped for now.
 	if len(targets) == 0 {
-		return nil
+		return &terraformRunIntent{}, nil
 	}
 
 	tfplan, err := os.CreateTemp(dir, ".kl-apply-replan-*.tfplan")
 	if err != nil {
-		return fmt.Errorf("replan: create tmp plan: %w", err)
+		return nil, fmt.Errorf("replan: create tmp plan: %w", err)
 	}
 	tfplan.Close()
 	defer os.Remove(tfplan.Name())
@@ -149,7 +155,7 @@ func validateReplanMatchesTargets(ctx context.Context, dir, terraformBin string,
 		Vars:    vars,
 		Targets: targets,
 	}, pluginCacheDir); err != nil {
-		return fmt.Errorf("replan: terraform plan: %w", err)
+		return nil, fmt.Errorf("replan: terraform plan: %w", err)
 	}
 	if verbose {
 		fmt.Fprintf(os.Stderr, "kl apply: validation terraform plan done in %s\n", time.Since(planStart).Round(time.Millisecond))
@@ -158,14 +164,14 @@ func validateReplanMatchesTargets(ctx context.Context, dir, terraformBin string,
 	showStart := time.Now()
 	b, err := plan.RunTerraformShow(ctx, terraformBin, dir, tfplan.Name())
 	if err != nil {
-		return fmt.Errorf("replan: terraform show: %w", err)
+		return nil, fmt.Errorf("replan: terraform show: %w", err)
 	}
 	if verbose {
 		fmt.Fprintf(os.Stderr, "kl apply: validation terraform show done in %s\n", time.Since(showStart).Round(time.Millisecond))
 	}
 	f, err := plan.ParseShowJSONBytes(b)
 	if err != nil {
-		return fmt.Errorf("replan: parse plan json: %w", err)
+		return nil, fmt.Errorf("replan: parse plan json: %w", err)
 	}
 
 	want := slice.IndexFootprintByGroup(targets)
@@ -183,11 +189,35 @@ func validateReplanMatchesTargets(ctx context.Context, dir, terraformBin string,
 		}
 	}
 	if len(missing) == 0 && len(extra) == 0 {
-		return nil
+		return exactIntentFromPlan(f), nil
 	}
 	sort.Strings(missing)
 	sort.Strings(extra)
-	return fmt.Errorf("replan validation failed: write_set mismatch (missing=%v extra=%v)", missing, extra)
+	return nil, fmt.Errorf("replan validation failed: write_set mismatch (missing=%v extra=%v)", missing, extra)
+}
+
+func exactIntentFromPlan(f *plan.File) *terraformRunIntent {
+	if f == nil {
+		return &terraformRunIntent{}
+	}
+	writes := make([]string, 0, len(f.ResourceChanges))
+	deletes := make([]string, 0)
+	for _, rc := range f.ResourceChanges {
+		switch plan.ClassifyChange(rc.Change) {
+		case plan.ActionCreate, plan.ActionUpdate, plan.ActionReplace, plan.ActionDelete, plan.ActionForget:
+			writes = append(writes, rc.Address)
+		}
+		switch plan.ClassifyChange(rc.Change) {
+		case plan.ActionDelete, plan.ActionForget:
+			deletes = append(deletes, rc.Address)
+		}
+	}
+	sort.Strings(writes)
+	sort.Strings(deletes)
+	return &terraformRunIntent{
+		ExactWriteSet: writes,
+		DeleteSet:     deletes,
+	}
 }
 
 func runTerraformPlanStreaming(ctx context.Context, terraformBin, workingDir, planFile string, opts plan.PlanRunOptions, pluginCacheDir string) error {

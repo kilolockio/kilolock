@@ -38,7 +38,7 @@ terraform {
 variable "size" {
   description = "Pair count for each herd module. Total resources = 2 * size + 4. Default produces 100k+ resources; override with -var=size=100 to validate the demo quickly."
   type        = number
-  default     = 5000
+  default     = 100
 }
 
 # Slow-resource demo knobs (v2d parallel-apply demo).

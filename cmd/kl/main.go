@@ -16,6 +16,7 @@
 //	kl history [state]    List the state_versions history of a state (newest first).
 //	kl rollback [state]   Replay a past state_version as a new write (dry-run by default).
 //	kl rollback resource  Replay one resource address from history into current state.
+//	kl state <sub>        Native or Terraform-compatible state rm/mv helpers.
 //	kl status [state]     Live operational status of a state (lock, applies, reservations).
 //	kl diff [state]       Attribute-level diff between two state versions.
 //	kl tag <sub>          Manage named pointers to state versions (set/unset/list).
@@ -74,6 +75,8 @@ func main() {
 		os.Exit(runHistory(args))
 	case "rollback":
 		os.Exit(runRollback(args))
+	case "state":
+		os.Exit(runState(args))
 	case "status":
 		os.Exit(runStatus(args))
 	case "diff":
@@ -107,6 +110,7 @@ Subcommands:
   apply     Apply a kl plan spec to a trunk state (v2 parallel apply).
   history   List the state_versions history of a state (newest first).
   rollback  Replay a past state_version, or one historical resource address, as a new write.
+  state     State maintenance helpers (rm, mv).
   status    Live operational status (lock, in-flight applies, reservations).
   diff      Attribute-level diff between two state versions.
   tag       Manage named pointers (set/unset/list) — usable as version refs.

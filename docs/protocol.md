@@ -5,6 +5,10 @@ exposes to Terraform and OpenTofu in v0. It mirrors the documented
 behavior of Terraform's [`http` backend][tf-http] and lists every
 intentional deviation explicitly.
 
+This document covers only the **Terraform/OpenTofu HTTP backend lane**. The
+experimental KL-native lane is documented separately in
+[`docs/state-engine-protocol-v1.md`](./state-engine-protocol-v1.md).
+
 [tf-http]: https://developer.hashicorp.com/terraform/language/backend/http
 
 ## Address
@@ -38,6 +42,11 @@ Recommended deployment patterns:
 - **Hosted / cloud behind a managed edge:** also use the sample above. The
   separate `POST /v1/state-unlock/...` route exists specifically because some
   providers reject `UNLOCK` with a request body before it reaches Kilolock.
+
+If you want sliced state fetch, narrower reservations, or native `kl state`
+operations, keep this backend block as-is for Terraform/OpenTofu and configure
+the KL-native state-engine lane separately. The two lanes are designed to share
+one logical state.
 
 ## Operations
 

@@ -133,7 +133,9 @@ The slice-construction model is:
 4. the backend returns:
    - relevant realized resources
    - dependency closure metadata
-   - missing / undeployed addresses it cannot satisfy from state
+   - a backend-authored scope contract for fetch/read/write/reservation surfaces
+   - explicit classification of addresses it cannot satisfy from state:
+     undeployed-vs-unknown
    - reservation candidates
 5. `kl` merges the backend slice with the needed local config footprint
 6. `kl` proceeds only if the closure is safe enough to prove
@@ -204,6 +206,39 @@ State engine behavior will therefore be configured in KL-owned configuration:
 Terraform's `backend "http"` block continues to identify the logical state.
 State engine config chooses how `kl` talks to that state.
 
+### D8. Native apply must be explicitly trusted, otherwise fallback is real
+
+The state engine lane is not "best effort narrow by default". It is a
+trust-based lane.
+
+That means:
+
+- if the backend proves a safe native slice, `kl apply` may use the trusted
+  state-engine lane
+- if the backend cannot prove that safely, the client must not quietly continue
+  on the trusted lane anyway
+- fallback must be a real runtime behavior change, not only a planning label
+
+Concretely, the trusted lane means:
+
+- Terraform-visible coarse lock is acquired
+- state-engine reservations are used
+- commit mode is state-engine delta
+- native intent metadata is surfaced to the operator
+
+Concretely, fallback means:
+
+- no state-engine coarse lock
+- no trusted delta-commit lane
+- runtime stays on the broader snapshot-merge / full-trunk behavior
+
+This distinction is important because the product promise is not merely
+"narrow when possible". The promise is:
+
+- narrow when the backend could prove it
+- broad when it could not
+- never pretend those two cases are equivalent
+
 ## Configuration contract
 
 ### Terraform backend block
@@ -272,6 +307,23 @@ such as:
 
 The HTTP backend endpoints remain unchanged for Terraform compatibility.
 
+## Current execution semantics note
+
+The current native/orchestrated apply path acquires reservations for the full
+scoped write set before execution starts.
+
+That means:
+
+- disjoint scoped writes can proceed concurrently
+- overlapping scoped writes block or wait
+- a scope that is *mostly* disjoint but overlaps on even one reserved address
+  does **not** currently make partial progress on the disjoint subset first
+
+This is an intentional conservative choice for the current implementation. It
+keeps one apply_run aligned with one complete reservation set and avoids
+half-executed scopes while the product is still proving out the state-engine
+lane.
+
 ## Consequences
 
 ### Positive
@@ -320,3 +372,12 @@ The HTTP backend endpoints remain unchanged for Terraform compatibility.
    - Terraform HTTP lane
    - current KL sliced lane with full trunk fetch
    - future state engine sliced lane
+7. Evolve the state-engine graph cache from per-process memory to a shared
+   multi-replica design when cloud deployments need it:
+   - current OSS behavior may keep the realized graph snapshot in one `kld`
+     process keyed by `(state_id, serial)`
+   - future hosted/cloud deployments may need a shared cache so multiple API
+     replicas can reuse the same warm snapshot for one hot state head
+   - Redis or a similar shared cache may be a good fit, but the storage choice
+     remains open; correctness requirements are more important than the exact
+     product

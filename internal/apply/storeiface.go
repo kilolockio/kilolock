@@ -19,9 +19,12 @@ type StoreAPI interface {
 	GetApplyRunStatus(ctx context.Context, id string) (store.ApplyRunStatus, error)
 	FinishApplyRun(ctx context.Context, id string, in store.FinishApplyRunInput) error
 	AbortApplyRun(ctx context.Context, id, reason string) error
+	AcquireStateEngineLock(ctx context.Context, name, applyID, holder string, scopeSummary []string) (store.LockInfo, error)
+	ReleaseStateEngineLock(ctx context.Context, name, applyID, actor string) error
 	AcquireReservations(ctx context.Context, stateID, applyID, actor string, want []store.Reservation, lease time.Duration) error
 	RenewReservations(ctx context.Context, applyID string, lease time.Duration) (int, error)
 	ReleaseReservations(ctx context.Context, applyID string) error
-	WriteStateForApply(ctx context.Context, name string, rawState []byte, source, actor string) error
+	WriteStateForApply(ctx context.Context, name, applyID string, baseSerial int64, rawState []byte, source, actor string) error
+	WriteStateEngineDeltaForApply(ctx context.Context, name, applyID string, baseSerial int64, delta store.StateEngineDeltaCommit, source, actor string) error
 	LookupStateVersionID(ctx context.Context, stateID string, serial int64) (string, error)
 }

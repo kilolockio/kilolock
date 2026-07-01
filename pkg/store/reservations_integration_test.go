@@ -350,6 +350,48 @@ func TestReservations_DisjointAddressesAllowParallelWrites(t *testing.T) {
 	}
 }
 
+// TestReservations_MixedOverlapDoesNotPartiallyAcquire pins the current
+// all-or-nothing reservation semantics. If bob requests one disjoint write and
+// one overlapping write, the overlapping address blocks the entire acquire; bob
+// must not silently acquire only the disjoint subset.
+func TestReservations_MixedOverlapDoesNotPartiallyAcquire(t *testing.T) {
+	s, pool := openTestStore(t)
+	defer pool.Close()
+	mustResetTables(t, pool)
+
+	stateID, versionID := seedApplyState(t, s, "v2a-mixed-overlap")
+	aliceApply := beginApply(t, s, stateID, versionID, "alice")
+	bobApply := beginApply(t, s, stateID, versionID, "bob")
+
+	ctx, cancel := context.WithTimeout(testdb.BackgroundTenantCtx(), 5*time.Second)
+	defer cancel()
+
+	if err := s.AcquireReservations(ctx, stateID, aliceApply, "alice", []Reservation{
+		{AddressGlob: "module.shared.aws_vpc.main", Mode: ReservationWrite},
+	}, time.Minute); err != nil {
+		t.Fatalf("alice acquire: %v", err)
+	}
+
+	err := s.AcquireReservations(ctx, stateID, bobApply, "bob", []Reservation{
+		{AddressGlob: "module.shared.aws_vpc.main", Mode: ReservationWrite},
+		{AddressGlob: "module.web.aws_lb.main", Mode: ReservationWrite},
+	}, time.Minute)
+	if !errors.Is(err, ErrReservationConflict) {
+		t.Fatalf("bob acquire: err = %v, want ErrReservationConflict", err)
+	}
+
+	active, err := s.ListActiveReservations(ctx, "v2a-mixed-overlap")
+	if err != nil {
+		t.Fatalf("ListActiveReservations: %v", err)
+	}
+	if len(active) != 1 {
+		t.Fatalf("active = %d, want 1 (only alice should hold reservations)", len(active))
+	}
+	if active[0].Holder != "alice" || active[0].AddressGlob != "module.shared.aws_vpc.main" {
+		t.Errorf("active[0] = %+v, want alice on module.shared.aws_vpc.main", active[0])
+	}
+}
+
 // TestReservations_ExpiredRowsAreReclaimed simulates a SIGKILLed
 // apply: alice's reservation expires without being released, then
 // bob acquires the same address. The acquire must succeed (alice's

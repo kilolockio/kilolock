@@ -111,6 +111,12 @@ type Options struct {
 	// The callback is invoked synchronously on the orchestrator
 	// goroutine — keep it cheap.
 	ReservationWaitNotifier func(WaitEvent)
+
+	// UseStateEngineLock acquires a Terraform-visible coarse state lock for
+	// the duration of the orchestrated run. This is the native-protocol path:
+	// granular reservations still arbitrate KL/KL concurrency, while plain
+	// Terraform/OpenTofu sees the state as locked.
+	UseStateEngineLock bool
 }
 
 // WaitEvent carries the per-iteration progress signal for the
@@ -149,6 +155,16 @@ type Result struct {
 	SourceSerial    int64
 	CommittedSerial int64
 	NewVersionID    string
+	CommitMode      string
+
+	// NativeIntent* surfaces the exact resource intent Terraform reported
+	// during the validation replan (or the post-apply diff fallback when
+	// that intent is unavailable). This is primarily for state-engine
+	// observability so operators can see what the narrow delta commit
+	// believed it was about to write or delete.
+	NativeIntentSource    string
+	NativeIntentWriteSet  []string
+	NativeIntentDeleteSet []string
 
 	// Counters mirror the apply_runs row.
 	ResourcesPlanned int // |write_set|

@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/kilolockio/kilolock/pkg/config"
 	"github.com/kilolockio/kilolock/pkg/store"
 )
 
@@ -43,6 +44,7 @@ func runApplyAbort(args []string) int {
 		fmt.Fprintln(os.Stderr, "kl apply abort:", err)
 		return 1
 	}
+	protocol := resolvedCLIProtocol(config.Load())
 
 	var targetID string
 	if strings.TrimSpace(*applyID) != "" {
@@ -85,7 +87,13 @@ func runApplyAbort(args []string) int {
 		}
 	}
 
-	if err := client.postJSON(ctx, "/admin/apply-runs/"+targetID+"/abort", strings.TrimSpace(*state), map[string]any{"reason": *reason}, nil); err != nil {
+	abortPath := "/admin/apply-runs/" + targetID + "/abort"
+	releasePath := "/admin/reservations/" + targetID + "/release"
+	if protocol == cliProtocolStateEngine {
+		abortPath = "/state-engine/apply-runs/" + targetID + "/abort"
+		releasePath = "/state-engine/reservations/" + targetID + "/release"
+	}
+	if err := client.postJSON(ctx, abortPath, strings.TrimSpace(*state), map[string]any{"reason": *reason}, nil); err != nil {
 		if strings.Contains(err.Error(), "apply run not found") {
 			fmt.Fprintf(os.Stderr, "kl apply abort: apply %s not found\n", targetID)
 			return 1
@@ -97,7 +105,7 @@ func runApplyAbort(args []string) int {
 		fmt.Fprintln(os.Stderr, "kl apply abort:", err)
 		return 1
 	}
-	_ = client.postJSON(ctx, "/admin/reservations/"+targetID+"/release", strings.TrimSpace(*state), map[string]any{}, nil)
+	_ = client.postJSON(ctx, releasePath, strings.TrimSpace(*state), map[string]any{}, nil)
 	if strings.TrimSpace(*state) != "" && strings.TrimSpace(*applyID) == "" {
 		fmt.Fprintf(os.Stdout, "aborted apply %s (state=%s)\n", targetID, strings.TrimSpace(*state))
 	} else {

@@ -1,6 +1,7 @@
 package tfstate
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -139,4 +140,92 @@ func InstanceAddress(r Resource, inst ResourceInstance) (string, error) {
 	}
 
 	return b.String(), nil
+}
+
+// ParseInstanceAddress parses a canonical Terraform resource instance address
+// into the resource envelope and instance index representation used in state.
+// Examples:
+//
+//	aws_instance.web
+//	aws_instance.web[0]
+//	aws_instance.web["blue"]
+//	data.aws_ami.ubuntu
+//	module.vpc.module.edge.aws_subnet.private[0]
+func ParseInstanceAddress(address string) (Resource, ResourceInstance, error) {
+	address = strings.TrimSpace(address)
+	if address == "" {
+		return Resource{}, ResourceInstance{}, fmt.Errorf("address is required")
+	}
+
+	indexKey, base, err := parseTrailingIndex(address)
+	if err != nil {
+		return Resource{}, ResourceInstance{}, err
+	}
+
+	parts := strings.Split(base, ".")
+	if len(parts) < 2 {
+		return Resource{}, ResourceInstance{}, fmt.Errorf("invalid address %q", address)
+	}
+
+	moduleParts := make([]string, 0)
+	i := 0
+	for i+1 < len(parts) && parts[i] == "module" {
+		moduleParts = append(moduleParts, parts[i], parts[i+1])
+		i += 2
+	}
+
+	mode := "managed"
+	if i < len(parts) && parts[i] == "data" {
+		mode = "data"
+		i++
+	}
+	if len(parts)-i != 2 {
+		return Resource{}, ResourceInstance{}, fmt.Errorf("invalid address %q", address)
+	}
+
+	resource := Resource{
+		Mode: mode,
+		Type: parts[i],
+		Name: parts[i+1],
+	}
+	if len(moduleParts) > 0 {
+		resource.Module = strings.Join(moduleParts, ".")
+	}
+	instance := ResourceInstance{IndexKey: indexKey}
+	return resource, instance, nil
+}
+
+func parseTrailingIndex(address string) (json.RawMessage, string, error) {
+	if !strings.HasSuffix(address, "]") {
+		return nil, address, nil
+	}
+	open := strings.LastIndex(address, "[")
+	if open < 0 || open >= len(address)-1 {
+		return nil, "", fmt.Errorf("invalid address %q", address)
+	}
+	base := address[:open]
+	raw := address[open+1 : len(address)-1]
+	if strings.TrimSpace(raw) == "" {
+		return nil, "", fmt.Errorf("invalid address %q", address)
+	}
+	if raw[0] == '"' {
+		value, err := strconv.Unquote(raw)
+		if err != nil {
+			return nil, "", fmt.Errorf("invalid address %q: %w", address, err)
+		}
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return nil, "", fmt.Errorf("marshal string index: %w", err)
+		}
+		return encoded, base, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return nil, "", fmt.Errorf("invalid address %q", address)
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil, "", fmt.Errorf("marshal int index: %w", err)
+	}
+	return encoded, base, nil
 }

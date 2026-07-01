@@ -113,6 +113,9 @@ removed {
 	if len(selected.Targets) != 1 || selected.Targets[0] != "time_sleep.slow_a" {
 		t.Fatalf("targets = %v", selected.Targets)
 	}
+	if _, ok := selected.RemovedResources["time_sleep.slow_a"]; !ok {
+		t.Fatalf("removed resources missing time_sleep.slow_a: %v", selected.RemovedResources)
+	}
 	found := false
 	for _, a := range selected.SliceAddresses {
 		if a == "time_sleep.slow_a" {
@@ -455,7 +458,7 @@ output "slow_a" {
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, err := filterSupportBlocks(path)
+	got, err := filterSupportBlocks(path, nil)
 	if err != nil {
 		t.Fatalf("filterSupportBlocks: %v", err)
 	}
@@ -513,7 +516,7 @@ func TestBuildScopedWorkspace_ReusesProjectTerraformDir(t *testing.T) {
 	}
 	scope := &FileScope{Relative: []string{"slow_a.tf"}}
 	analyzed := &SelectedScope{}
-	if err := buildScopedWorkspace(src, dst, scope, analyzed); err != nil {
+	if err := buildScopedWorkspace(src, dst, scope, analyzed, nil); err != nil {
 		t.Fatalf("buildScopedWorkspace: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dst, ".terraform", "modules", "modules.json")); err != nil {
@@ -542,11 +545,46 @@ module "primary_herd" {
 	}
 	scope := &FileScope{Relative: []string{"slow_a.tf"}}
 	analyzed := &SelectedScope{} // selected file itself has no module blocks
-	if err := buildScopedWorkspace(src, dst, scope, analyzed); err != nil {
+	if err := buildScopedWorkspace(src, dst, scope, analyzed, nil); err != nil {
 		t.Fatalf("buildScopedWorkspace: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dst, "modules", "herd", "main.tf")); err != nil {
 		t.Fatalf("expected copied local module from support file, stat failed: %v", err)
+	}
+}
+
+func TestBuildScopedWorkspace_KeepsConfigRequiredNodesFromSupportFiles(t *testing.T) {
+	src := t.TempDir()
+	dst := t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, "slow_a.tf"), []byte(`resource "time_sleep" "slow_a" {}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "network.tf"), []byte(`
+resource "aws_vpc" "main" {
+  cidr_block = "10.0.0.0/16"
+}
+
+resource "aws_subnet" "future" {
+  vpc_id = aws_vpc.main.id
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	scope := &FileScope{Relative: []string{"slow_a.tf"}}
+	analyzed := &SelectedScope{}
+	if err := buildScopedWorkspace(src, dst, scope, analyzed, []string{"aws_subnet.future"}); err != nil {
+		t.Fatalf("buildScopedWorkspace: %v", err)
+	}
+	b, err := os.ReadFile(filepath.Join(dst, "network.tf"))
+	if err != nil {
+		t.Fatalf("read kept support file: %v", err)
+	}
+	got := string(b)
+	if !strings.Contains(got, `resource "aws_subnet" "future"`) {
+		t.Fatalf("support file missing required config node:\n%s", got)
+	}
+	if !strings.Contains(got, `resource "aws_vpc" "main"`) {
+		t.Fatalf("support file should still keep normal support blocks:\n%s", got)
 	}
 }
 
@@ -631,7 +669,7 @@ resource "time_sleep" "slow_a" {}
 	}
 	scope := &FileScope{Relative: []string{"slow_a.tf"}}
 	analyzed := &SelectedScope{}
-	if err := buildScopedWorkspace(src, dst, scope, analyzed); err != nil {
+	if err := buildScopedWorkspace(src, dst, scope, analyzed, nil); err != nil {
 		t.Fatalf("buildScopedWorkspace: %v", err)
 	}
 	b, err := os.ReadFile(filepath.Join(dst, "slow_a.tf"))

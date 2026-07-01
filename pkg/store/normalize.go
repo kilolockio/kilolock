@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -66,6 +68,7 @@ type resourceRow struct {
 	modulePath      string
 	indexKind       string
 	indexValue      any // nil for IndexNone, otherwise string
+	schemaVersion   int
 	attributes      string
 	sensitivePaths  string
 	dependenciesRaw string
@@ -100,6 +103,7 @@ func buildResourceRows(stateID string, serial int64, s *tfstate.State) (map[stri
 				modulePath:      r.Module,
 				indexKind:       kind.String(),
 				indexValue:      indexVal,
+				schemaVersion:   inst.SchemaVersion,
 				attributes:      jsonOrDefault(inst.Attributes, "{}"),
 				sensitivePaths:  jsonOrDefault(inst.SensitiveAttributes, "[]"),
 				dependenciesRaw: marshalDependencies(inst.Dependencies),
@@ -149,6 +153,8 @@ func hashResourceContent(r resourceRow) string {
 			fmt.Fprintf(&b, "%v", r.indexValue)
 		}
 	}
+	b.WriteString(sep)
+	fmt.Fprintf(&b, "%d", r.schemaVersion)
 	b.WriteString(sep)
 	b.WriteString(r.attributes)
 	b.WriteString(sep)
@@ -207,6 +213,52 @@ func applyResourceDelta(
 	return nil
 }
 
+func applyResourceDeltaSelected(
+	ctx context.Context,
+	tx pgx.Tx,
+	tenantID, stateID string,
+	serial int64,
+	parsed map[string]resourceRow,
+	selected []string,
+) error {
+	selected = dedupeSortedStrings(selected)
+	if len(selected) == 0 {
+		return nil
+	}
+
+	open, err := loadOpenResourcesByAddress(ctx, tx, stateID, selected)
+	if err != nil {
+		return fmt.Errorf("load selected open resources: %w", err)
+	}
+
+	toClose := make([]string, 0)
+	toInsert := make([]resourceRow, 0)
+
+	for _, addr := range selected {
+		newRow, inParsed := parsed[addr]
+		existing, inOpen := open[addr]
+		switch {
+		case inParsed && !inOpen:
+			toInsert = append(toInsert, newRow)
+		case inParsed && inOpen:
+			if existing.hash != newRow.attributesHash {
+				toClose = append(toClose, existing.id)
+				toInsert = append(toInsert, newRow)
+			}
+		case !inParsed && inOpen:
+			toClose = append(toClose, existing.id)
+		}
+	}
+
+	if err := closeResources(ctx, tx, toClose, serial); err != nil {
+		return fmt.Errorf("close selected resources (%d): %w", len(toClose), err)
+	}
+	if err := insertResourceRows(ctx, tx, tenantID, stateID, serial, toInsert); err != nil {
+		return fmt.Errorf("insert selected resources (%d): %w", len(toInsert), err)
+	}
+	return nil
+}
+
 // openResource is the lightweight projection of a currently-open
 // resources row needed to drive the delta computation.
 type openResource struct {
@@ -214,14 +266,40 @@ type openResource struct {
 	hash string
 }
 
+type openResourceStateRow struct {
+	address         string
+	mode            string
+	rtype           string
+	name            string
+	provider        string
+	modulePath      string
+	indexKind       string
+	indexValue      string
+	schemaVersion   int
+	attributes      string
+	sensitivePaths  string
+	dependenciesRaw string
+}
+
 // loadOpenResources returns the set of open (delete_serial IS NULL)
 // resources rows for the given state, indexed by address.
 func loadOpenResources(ctx context.Context, tx pgx.Tx, stateID string) (map[string]openResource, error) {
+	return loadOpenResourcesQuery(ctx, tx, stateID, "", nil)
+}
+
+func loadOpenResourcesByAddress(ctx context.Context, tx pgx.Tx, stateID string, addresses []string) (map[string]openResource, error) {
+	if len(addresses) == 0 {
+		return map[string]openResource{}, nil
+	}
+	return loadOpenResourcesQuery(ctx, tx, stateID, ` AND address = ANY($2::text[])`, []any{addresses})
+}
+
+func loadOpenResourcesQuery(ctx context.Context, tx pgx.Tx, stateID, suffix string, extraArgs []any) (map[string]openResource, error) {
 	rows, err := tx.Query(ctx,
 		`SELECT id, address, attributes_hash
 		 FROM   resources
-		 WHERE  state_id = $1 AND delete_serial IS NULL`,
-		stateID,
+		 WHERE  state_id = $1 AND delete_serial IS NULL`+suffix,
+		append([]any{stateID}, extraArgs...)...,
 	)
 	if err != nil {
 		return nil, err
@@ -237,6 +315,134 @@ func loadOpenResources(ctx context.Context, tx pgx.Tx, stateID string) (map[stri
 		out[addr] = openResource{id: id, hash: hash}
 	}
 	return out, rows.Err()
+}
+
+func loadOpenResourceStateRows(ctx context.Context, tx pgx.Tx, stateID string) ([]openResourceStateRow, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT address, mode, type, name, provider, module_path,
+		       index_kind, COALESCE(index_value, ''), schema_version, attributes::text,
+		       sensitive_paths::text, dependencies_raw::text
+		FROM   resources
+		WHERE  state_id = $1
+		  AND  delete_serial IS NULL
+		ORDER  BY module_path, mode, type, name, provider, address
+	`, stateID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]openResourceStateRow, 0)
+	for rows.Next() {
+		var item openResourceStateRow
+		if err := rows.Scan(
+			&item.address,
+			&item.mode,
+			&item.rtype,
+			&item.name,
+			&item.provider,
+			&item.modulePath,
+			&item.indexKind,
+			&item.indexValue,
+			&item.schemaVersion,
+			&item.attributes,
+			&item.sensitivePaths,
+			&item.dependenciesRaw,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func buildCurrentStateResourcesFromOpenRows(ctx context.Context, tx pgx.Tx, stateID string) ([]tfstate.Resource, error) {
+	rows, err := loadOpenResourceStateRows(ctx, tx, stateID)
+	if err != nil {
+		return nil, fmt.Errorf("load open resource state rows: %w", err)
+	}
+	if len(rows) == 0 {
+		return []tfstate.Resource{}, nil
+	}
+
+	type resourceKey struct {
+		mode       string
+		rtype      string
+		name       string
+		provider   string
+		modulePath string
+	}
+
+	groupIndex := make(map[resourceKey]int, len(rows))
+	resources := make([]tfstate.Resource, 0, len(rows))
+	for _, row := range rows {
+		key := resourceKey{
+			mode:       row.mode,
+			rtype:      row.rtype,
+			name:       row.name,
+			provider:   row.provider,
+			modulePath: row.modulePath,
+		}
+		idx, ok := groupIndex[key]
+		if !ok {
+			idx = len(resources)
+			groupIndex[key] = idx
+			resources = append(resources, tfstate.Resource{
+				Mode:      row.mode,
+				Type:      row.rtype,
+				Name:      row.name,
+				Provider:  row.provider,
+				Module:    row.modulePath,
+				Instances: []tfstate.ResourceInstance{},
+			})
+		}
+		inst, err := resourceInstanceFromOpenRow(row)
+		if err != nil {
+			return nil, err
+		}
+		resources[idx].Instances = append(resources[idx].Instances, inst)
+	}
+	return resources, nil
+}
+
+func resourceInstanceFromOpenRow(row openResourceStateRow) (tfstate.ResourceInstance, error) {
+	inst := tfstate.ResourceInstance{
+		SchemaVersion:       row.schemaVersion,
+		Attributes:          json.RawMessage(row.attributes),
+		SensitiveAttributes: json.RawMessage(row.sensitivePaths),
+	}
+
+	switch strings.TrimSpace(row.indexKind) {
+	case "", "none":
+	case "int":
+		n, err := strconv.ParseInt(strings.TrimSpace(row.indexValue), 10, 64)
+		if err != nil {
+			return tfstate.ResourceInstance{}, fmt.Errorf("decode int index for %s: %w", row.address, err)
+		}
+		raw, err := json.Marshal(n)
+		if err != nil {
+			return tfstate.ResourceInstance{}, fmt.Errorf("encode int index for %s: %w", row.address, err)
+		}
+		inst.IndexKey = raw
+	case "string":
+		raw, err := json.Marshal(row.indexValue)
+		if err != nil {
+			return tfstate.ResourceInstance{}, fmt.Errorf("encode string index for %s: %w", row.address, err)
+		}
+		inst.IndexKey = raw
+	default:
+		return tfstate.ResourceInstance{}, fmt.Errorf("unsupported index kind %q for %s", row.indexKind, row.address)
+	}
+
+	if strings.TrimSpace(row.dependenciesRaw) != "" && strings.TrimSpace(row.dependenciesRaw) != "[]" {
+		if err := json.Unmarshal([]byte(row.dependenciesRaw), &inst.Dependencies); err != nil {
+			return tfstate.ResourceInstance{}, fmt.Errorf("decode dependencies for %s: %w", row.address, err)
+		}
+	}
+	return inst, nil
 }
 
 // closeResources sets delete_serial on the given resource ids.
@@ -261,7 +467,7 @@ func closeResources(ctx context.Context, tx pgx.Tx, ids []string, serial int64) 
 // matches the order we push values in below.
 var resourceColumns = []string{
 	"tenant_id", "state_id", "address", "mode", "type", "name", "provider",
-	"module_path", "index_kind", "index_value",
+	"module_path", "index_kind", "index_value", "schema_version",
 	"attributes", "sensitive_paths", "dependencies_raw",
 	"attributes_hash", "create_serial",
 }
@@ -291,6 +497,7 @@ func insertResourceRows(
 			r.modulePath,
 			r.indexKind,
 			r.indexValue,
+			r.schemaVersion,
 			r.attributes,
 			r.sensitivePaths,
 			r.dependenciesRaw,
@@ -363,4 +570,25 @@ func marshalDependencies(deps []string) string {
 	}
 	b, _ := json.Marshal(deps)
 	return string(b)
+}
+
+func dedupeSortedStrings(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+	for _, item := range in {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		seen[item] = struct{}{}
+		out = append(out, item)
+	}
+	slices.Sort(out)
+	return out
 }

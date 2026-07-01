@@ -84,6 +84,10 @@ type Config struct {
 	// IACVersion optionally pins a desired IaC CLI version.
 	IACVersion string
 
+	// Protocol selects the CLI/backend interaction mode for scoped
+	// workflows. Empty means the default Terraform HTTP backend path.
+	Protocol string
+
 	// MaxEnvironmentPools caps cached pgx pools per serve process.
 	MaxEnvironmentPools int
 
@@ -237,6 +241,9 @@ func Load() Config {
 				if fs.DatabaseURL != "" {
 					c.DatabaseURL = fs.DatabaseURL
 				}
+				if strings.TrimSpace(fs.Protocol) != "" {
+					c.Protocol = strings.TrimSpace(fs.Protocol)
+				}
 				// BackendAddress is read for symmetry but no
 				// subcommand consumes it yet; it lives on
 				// FileSettings to reserve the design space.
@@ -365,6 +372,9 @@ func Load() Config {
 	}
 	if v := strings.TrimSpace(os.Getenv("KL_IAC_VERSION")); v != "" {
 		c.IACVersion = v
+	}
+	if v := strings.TrimSpace(os.Getenv("KL_PROTOCOL")); v != "" {
+		c.Protocol = v
 	}
 	if v := strings.TrimSpace(os.Getenv("KL_ROUTING_STATS_INTERVAL_SECONDS")); v != "" {
 		var n int

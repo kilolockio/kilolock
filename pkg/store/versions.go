@@ -555,6 +555,24 @@ func rewriteStateSerial(raw []byte, newSerial int64) ([]byte, error) {
 	return json.Marshal(doc)
 }
 
+func rewriteStateResourcesAndSerial(raw []byte, resources []tfstate.Resource, newSerial int64) ([]byte, error) {
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return nil, fmt.Errorf("decode state json: %w", err)
+	}
+	serialBytes, err := json.Marshal(newSerial)
+	if err != nil {
+		return nil, fmt.Errorf("encode new serial: %w", err)
+	}
+	resourceBytes, err := json.Marshal(resources)
+	if err != nil {
+		return nil, fmt.Errorf("encode resources: %w", err)
+	}
+	doc["serial"] = serialBytes
+	doc["resources"] = resourceBytes
+	return json.Marshal(doc)
+}
+
 // looksLikeUUID is the cheapest possible UUID-shape check that
 // rejects integers: 36 chars, four dashes at the canonical
 // positions. We don't validate hex-ness because the SQL layer

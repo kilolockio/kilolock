@@ -1,6 +1,6 @@
 module "small_herd" {
   source = "./modules/herd"
-  size   = 24
+  size   = 5000
   prefix = "${random_pet.deployment_name.id}-small"
 }
 

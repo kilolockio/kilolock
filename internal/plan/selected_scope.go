@@ -12,6 +12,7 @@ import (
 type SelectedScope struct {
 	Targets          []string
 	RootResources    map[string]struct{}
+	RemovedResources map[string]struct{}
 	ModulePrefixes   []string
 	SliceAddresses   []string
 	LocalModulePaths []string
@@ -32,7 +33,8 @@ var (
 
 func AnalyzeSelectedFiles(configDir string, relFiles []string) (*SelectedScope, error) {
 	scope := &SelectedScope{
-		RootResources: map[string]struct{}{},
+		RootResources:    map[string]struct{}{},
+		RemovedResources: map[string]struct{}{},
 	}
 	targetSeen := map[string]struct{}{}
 	modulePathSeen := map[string]struct{}{}
@@ -114,6 +116,7 @@ func AnalyzeSelectedFiles(configDir string, relFiles []string) (*SelectedScope, 
 						return nil, fmt.Errorf("parse removed block in %s: missing from =", rel)
 					}
 					addSelectedMetaTarget(scope, targetSeen, sliceSeen, from)
+					scope.RemovedResources[from] = struct{}{}
 				case "moved":
 					from := parseMetaAddr(block.Bytes, blockFromRE)
 					to := parseMetaAddr(block.Bytes, blockToRE)

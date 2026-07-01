@@ -350,6 +350,143 @@ func TestEmitPlanSpec_FileScopeNarrowsWriteSet(t *testing.T) {
 	}
 }
 
+func TestEmitPlanSpec_PreservesStateEngineMetadata(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "slow_a.tf"), []byte(`resource "time_sleep" "slow_a" {}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outPath := filepath.Join(dir, "scoped-engine.json")
+	rc, _, err := emitPlanSpec(planEmitInput{
+		showJSON:   []byte(capturedScopedShowJSON),
+		configDir:  dir,
+		scopeFiles: []string{"slow_a.tf"},
+		stateEngine: &plan.StateEnginePlanMetadata{
+			Mode:                  "native-slice-with-discovery-fallback",
+			DiscoveryEngine:       "heuristic",
+			FetchAddresses:        []string{"random_pet.deployment_name"},
+			ConfigRequiredNodes:   []string{"null_resource.future"},
+			RemovedConfigNodes:    []string{"time_sleep.deleted"},
+			MissingFromState:      []string{"null_resource.future"},
+			UndeployedCandidates:  []string{"null_resource.future"},
+			UnknownMissing:        []string{},
+			Confidence:            "safe",
+			Notes:                 []string{"required config-only node preserved from support file"},
+			ResolveDurationMs:     5,
+			ExpandDurationMs:      7,
+			SliceFetchDurationMs:  11,
+			SliceResourceCount:    2,
+			GraphCacheHit:         true,
+			RealizedResourceCount: 12,
+			DependencyEdgeCount:   18,
+			InventoryScanCount:    4,
+			SliceBytes:            123,
+		},
+		outPath:     outPath,
+		generatedAt: time.Date(2026, 5, 14, 12, 0, 0, 0, time.UTC),
+		stdout:      &bytes.Buffer{},
+		stderr:      &bytes.Buffer{},
+	})
+	if err != nil || rc != 0 {
+		t.Fatalf("emitPlanSpec: rc=%d err=%v", rc, err)
+	}
+	b, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("read spec: %v", err)
+	}
+	spec, err := plan.UnmarshalSpec(b)
+	if err != nil {
+		t.Fatalf("unmarshal spec: %v", err)
+	}
+	if spec.StateEngine == nil {
+		t.Fatalf("expected state_engine metadata to be present")
+	}
+	if spec.StateEngine.Mode != "native-slice-with-discovery-fallback" {
+		t.Fatalf("mode = %q, want native-slice-with-discovery-fallback", spec.StateEngine.Mode)
+	}
+	if spec.StateEngine.DiscoveryEngine != "heuristic" {
+		t.Fatalf("discovery_engine = %q, want heuristic", spec.StateEngine.DiscoveryEngine)
+	}
+	if got, want := spec.StateEngine.FetchAddresses, []string{"random_pet.deployment_name"}; !equalSlices(got, want) {
+		t.Fatalf("fetch_addresses = %v, want %v", got, want)
+	}
+	if got, want := spec.StateEngine.ConfigRequiredNodes, []string{"null_resource.future"}; !equalSlices(got, want) {
+		t.Fatalf("config_required_nodes = %v, want %v", got, want)
+	}
+	if got, want := spec.StateEngine.RemovedConfigNodes, []string{"time_sleep.deleted"}; !equalSlices(got, want) {
+		t.Fatalf("removed_config_nodes = %v, want %v", got, want)
+	}
+	if spec.StateEngine.SliceBytes != 123 {
+		t.Fatalf("slice_bytes = %d, want 123", spec.StateEngine.SliceBytes)
+	}
+	if spec.StateEngine.ResolveDurationMs != 5 || spec.StateEngine.ExpandDurationMs != 7 || spec.StateEngine.SliceFetchDurationMs != 11 {
+		t.Fatalf("unexpected state-engine timings: %+v", spec.StateEngine)
+	}
+	if spec.StateEngine.SliceResourceCount != 2 {
+		t.Fatalf("slice_resource_count = %d, want 2", spec.StateEngine.SliceResourceCount)
+	}
+	if !spec.StateEngine.GraphCacheHit || spec.StateEngine.RealizedResourceCount != 12 || spec.StateEngine.DependencyEdgeCount != 18 || spec.StateEngine.InventoryScanCount != 4 {
+		t.Fatalf("unexpected scope diagnostics: %+v", spec.StateEngine)
+	}
+	if got, want := spec.StateEngine.MissingFromState, []string{"null_resource.future"}; !equalSlices(got, want) {
+		t.Fatalf("missing_from_state = %v, want %v", got, want)
+	}
+	if got, want := spec.StateEngine.UndeployedCandidates, []string{"null_resource.future"}; !equalSlices(got, want) {
+		t.Fatalf("undeployed_candidates = %v, want %v", got, want)
+	}
+	if spec.StateEngine.Confidence != "safe" {
+		t.Fatalf("confidence = %q, want safe", spec.StateEngine.Confidence)
+	}
+	if got, want := spec.StateEngine.Notes, []string{"required config-only node preserved from support file"}; !equalSlices(got, want) {
+		t.Fatalf("notes = %v, want %v", got, want)
+	}
+}
+
+func TestEmitPlanSpec_PreservesStateEngineFallbackMetadata(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "slow_a.tf"), []byte(`resource "time_sleep" "slow_a" {}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outPath := filepath.Join(dir, "scoped-engine-fallback.json")
+	rc, _, err := emitPlanSpec(planEmitInput{
+		showJSON:   []byte(capturedScopedShowJSON),
+		configDir:  dir,
+		scopeFiles: []string{"slow_a.tf"},
+		stateEngine: &plan.StateEnginePlanMetadata{
+			Mode:           "full-trunk-fallback",
+			FallbackReason: "native scoped state-engine path unavailable; falling back to full trunk",
+			Notes:          []string{"native scoped state-engine path unavailable; falling back to full trunk"},
+			FullStateBytes: 4096,
+		},
+		outPath:     outPath,
+		generatedAt: time.Date(2026, 5, 14, 12, 0, 0, 0, time.UTC),
+		stdout:      &bytes.Buffer{},
+		stderr:      &bytes.Buffer{},
+	})
+	if err != nil || rc != 0 {
+		t.Fatalf("emitPlanSpec: rc=%d err=%v", rc, err)
+	}
+	b, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("read spec: %v", err)
+	}
+	spec, err := plan.UnmarshalSpec(b)
+	if err != nil {
+		t.Fatalf("unmarshal spec: %v", err)
+	}
+	if spec.StateEngine == nil {
+		t.Fatalf("expected state_engine metadata to be present")
+	}
+	if spec.StateEngine.Mode != "full-trunk-fallback" {
+		t.Fatalf("mode = %q, want full-trunk-fallback", spec.StateEngine.Mode)
+	}
+	if spec.StateEngine.FallbackReason == "" {
+		t.Fatal("expected fallback reason to be preserved")
+	}
+	if spec.StateEngine.FullStateBytes != 4096 {
+		t.Fatalf("full_state_bytes = %d, want 4096", spec.StateEngine.FullStateBytes)
+	}
+}
+
 func TestEmitPlanSpec_FileScopeEmptyWriteSetFails(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "not-owned.tf"), []byte(`resource "null_resource" "x" {}`), 0o644); err != nil {

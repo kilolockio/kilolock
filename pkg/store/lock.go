@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -48,6 +49,13 @@ func (s *Store) AcquireLock(ctx context.Context, name string, info LockInfo) (cu
 		stateID, err := upsertStateWithCreator(ctx, tx, tenantID, name, "", initialStateCreatorBackend)
 		if err != nil {
 			return err
+		}
+
+		if existing, ok, err := scanExistingLock(ctx, tx, stateID); err != nil {
+			return fmt.Errorf("probe existing lock: %w", err)
+		} else if ok && isStateEngineLockPath(existing.Path) {
+			current = existing
+			return ErrAlreadyLocked
 		}
 
 		// Read the per-state exclusive_locks flag and the trunk
@@ -164,8 +172,8 @@ func (s *Store) ReleaseLock(ctx context.Context, name, lockID, actor string) err
 		}
 
 		tag, err := tx.Exec(ctx,
-			`DELETE FROM state_locks WHERE state_id = $1 AND lock_id = $2`,
-			stateID, lockID,
+			`DELETE FROM state_locks WHERE state_id = $1 AND lock_id = $2 AND path NOT LIKE $3`,
+			stateID, lockID, stateEngineLockPathPrefix+"%",
 		)
 		if err != nil {
 			return err
@@ -215,22 +223,21 @@ func (s *Store) ForceReleaseLock(ctx context.Context, name, actor string) error 
 			return err
 		}
 
-		var releasedID *string
+		var lockID string
 		err = tx.QueryRow(ctx,
-			`DELETE FROM state_locks WHERE state_id = $1
-			 RETURNING lock_id`,
-			stateID,
-		).Scan(&releasedID)
+			`WITH deleted AS (
+				DELETE FROM state_locks
+				WHERE state_id = $1 AND path NOT LIKE $2
+				RETURNING lock_id
+			)
+			SELECT COALESCE((SELECT lock_id FROM deleted LIMIT 1), '')`,
+			stateID, stateEngineLockPathPrefix+"%",
+		).Scan(&lockID)
 		switch {
-		case errors.Is(err, pgx.ErrNoRows):
+		case errors.Is(err, pgx.ErrNoRows), strings.TrimSpace(lockID) == "":
 			return nil
 		case err != nil:
 			return fmt.Errorf("delete state_lock: %w", err)
-		}
-
-		var lockID string
-		if releasedID != nil {
-			lockID = *releasedID
 		}
 		_, err = tx.Exec(ctx,
 			`INSERT INTO events (kind, tenant_id, state_id, actor, payload)

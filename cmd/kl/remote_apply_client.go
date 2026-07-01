@@ -14,12 +14,13 @@ import (
 )
 
 type remoteApplyClient struct {
-	api       *apiClient
-	stateName string
+	api            *apiClient
+	stateName      string
+	useStateEngine bool
 }
 
-func newRemoteApplyClient(api *apiClient, stateName string) *remoteApplyClient {
-	return &remoteApplyClient{api: api, stateName: stateName}
+func newRemoteApplyClient(api *apiClient, stateName string, useStateEngine bool) *remoteApplyClient {
+	return &remoteApplyClient{api: api, stateName: stateName, useStateEngine: useStateEngine}
 }
 
 func (c *remoteApplyClient) GetCurrentStateInfo(ctx context.Context, name string) (*store.CurrentStateInfo, error) {
@@ -61,7 +62,12 @@ func (c *remoteApplyClient) GetStateRawAtSerial(ctx context.Context, name string
 func (c *remoteApplyClient) BeginApplyRun(ctx context.Context, stateID, fromVersionID, actor string, sourceSerial int64, info json.RawMessage) (*store.ApplyRun, error) {
 	in := map[string]any{"state_id": stateID, "from_version_id": fromVersionID, "actor": actor, "source_serial": sourceSerial, "info": info}
 	var out store.ApplyRun
-	if err := c.api.postJSON(ctx, "/admin/apply-runs/begin", c.stateName, in, &out); err != nil {
+	path := "/admin/apply-runs/begin"
+	if c.useStateEngine {
+		in["state"] = c.stateName
+		path = "/state-engine/apply-runs/begin"
+	}
+	if err := c.api.postJSON(ctx, path, c.stateName, in, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -71,18 +77,59 @@ func (c *remoteApplyClient) GetApplyRunStatus(ctx context.Context, id string) (s
 	var out struct {
 		Status store.ApplyRunStatus `json:"status"`
 	}
-	if err := c.api.doJSON(ctx, "GET", "/admin/apply-runs/"+url.PathEscape(id)+"/status", c.stateName, nil, &out); err != nil {
+	path := "/admin/apply-runs/" + url.PathEscape(id) + "/status"
+	if c.useStateEngine {
+		path = "/state-engine/apply-runs/" + url.PathEscape(id) + "/status"
+	}
+	if err := c.api.doJSON(ctx, "GET", path, c.stateName, nil, &out); err != nil {
 		return "", err
 	}
 	return out.Status, nil
 }
 
 func (c *remoteApplyClient) FinishApplyRun(ctx context.Context, id string, in store.FinishApplyRunInput) error {
-	return c.api.postJSON(ctx, "/admin/apply-runs/"+url.PathEscape(id)+"/finish", c.stateName, in, nil)
+	path := "/admin/apply-runs/" + url.PathEscape(id) + "/finish"
+	if c.useStateEngine {
+		path = "/state-engine/apply-runs/" + url.PathEscape(id) + "/finish"
+	}
+	return c.api.postJSON(ctx, path, c.stateName, in, nil)
 }
 
 func (c *remoteApplyClient) AbortApplyRun(ctx context.Context, id, reason string) error {
-	return c.api.postJSON(ctx, "/admin/apply-runs/"+url.PathEscape(id)+"/abort", c.stateName, map[string]any{"reason": reason}, nil)
+	path := "/admin/apply-runs/" + url.PathEscape(id) + "/abort"
+	if c.useStateEngine {
+		path = "/state-engine/apply-runs/" + url.PathEscape(id) + "/abort"
+	}
+	return c.api.postJSON(ctx, path, c.stateName, map[string]any{"reason": reason}, nil)
+}
+
+func (c *remoteApplyClient) AcquireStateEngineLock(ctx context.Context, name, applyID, holder string, scopeSummary []string) (store.LockInfo, error) {
+	var out struct {
+		Error  string         `json:"error"`
+		LockID string         `json:"lock_id"`
+		Lock   store.LockInfo `json:"lock"`
+	}
+	err := c.api.postJSON(ctx, "/state-engine/terraform-lock/acquire", c.stateName, map[string]any{
+		"state":         name,
+		"apply_id":      applyID,
+		"holder":        holder,
+		"scope_summary": scopeSummary,
+	}, &out)
+	if err == nil {
+		return out.Lock, nil
+	}
+	if out.Error != "" || out.Lock.ID != "" {
+		return out.Lock, store.ErrAlreadyLocked
+	}
+	return store.LockInfo{}, err
+}
+
+func (c *remoteApplyClient) ReleaseStateEngineLock(ctx context.Context, name, applyID, actor string) error {
+	return c.api.postJSON(ctx, "/state-engine/terraform-lock/release", c.stateName, map[string]any{
+		"state":    name,
+		"apply_id": applyID,
+		"actor":    actor,
+	}, nil)
 }
 
 func (c *remoteApplyClient) AcquireReservations(ctx context.Context, stateID, applyID, actor string, want []store.Reservation, lease time.Duration) error {
@@ -94,10 +141,16 @@ func (c *remoteApplyClient) AcquireReservations(ctx context.Context, stateID, ap
 		"state_id":      stateID,
 		"apply_id":      applyID,
 		"actor":         actor,
+		"holder":        actor,
 		"want":          want,
 		"lease_seconds": int(lease / time.Second),
 	}
-	err := c.api.postJSON(ctx, "/admin/reservations/acquire", c.stateName, in, &out)
+	path := "/admin/reservations/acquire"
+	if c.useStateEngine {
+		in["state"] = c.stateName
+		path = "/state-engine/reservations/acquire"
+	}
+	err := c.api.postJSON(ctx, path, c.stateName, in, &out)
 	if err == nil {
 		return nil
 	}
@@ -109,21 +162,48 @@ func (c *remoteApplyClient) AcquireReservations(ctx context.Context, stateID, ap
 
 func (c *remoteApplyClient) RenewReservations(ctx context.Context, applyID string, lease time.Duration) (int, error) {
 	var out struct {
-		Rows int `json:"rows"`
+		Rows    int `json:"rows"`
+		Renewed int `json:"renewed"`
 	}
-	err := c.api.postJSON(ctx, "/admin/reservations/"+url.PathEscape(applyID)+"/renew", c.stateName, map[string]any{"lease_seconds": int(lease / time.Second)}, &out)
+	path := "/admin/reservations/" + url.PathEscape(applyID) + "/renew"
+	if c.useStateEngine {
+		path = "/state-engine/reservations/" + url.PathEscape(applyID) + "/renew"
+	}
+	err := c.api.postJSON(ctx, path, c.stateName, map[string]any{"lease_seconds": int(lease / time.Second)}, &out)
+	if out.Renewed > 0 {
+		return out.Renewed, err
+	}
 	return out.Rows, err
 }
 
 func (c *remoteApplyClient) ReleaseReservations(ctx context.Context, applyID string) error {
-	return c.api.postJSON(ctx, "/admin/reservations/"+url.PathEscape(applyID)+"/release", c.stateName, map[string]any{}, nil)
+	path := "/admin/reservations/" + url.PathEscape(applyID) + "/release"
+	if c.useStateEngine {
+		path = "/state-engine/reservations/" + url.PathEscape(applyID) + "/release"
+	}
+	return c.api.postJSON(ctx, path, c.stateName, map[string]any{}, nil)
 }
 
-func (c *remoteApplyClient) WriteStateForApply(ctx context.Context, name string, rawState []byte, source, actor string) error {
+func (c *remoteApplyClient) WriteStateForApply(ctx context.Context, name, applyID string, baseSerial int64, rawState []byte, source, actor string) error {
 	err := c.api.postJSON(ctx, "/admin/state/write-apply?name="+url.QueryEscape(name), name, map[string]any{
-		"raw_state": string(rawState),
-		"source":    source,
-		"actor":     actor,
+		"apply_id":    applyID,
+		"base_serial": baseSerial,
+		"raw_state":   string(rawState),
+		"source":      source,
+		"actor":       actor,
+	}, nil)
+	return normalizeWriteStateForApplyError(err)
+}
+
+func (c *remoteApplyClient) WriteStateEngineDeltaForApply(ctx context.Context, name, applyID string, baseSerial int64, delta store.StateEngineDeltaCommit, source, actor string) error {
+	err := c.api.postJSON(ctx, "/state-engine/state/commit", c.stateName, map[string]any{
+		"state":       name,
+		"apply_id":    applyID,
+		"base_serial": baseSerial,
+		"mode":        "delta",
+		"delta":       delta,
+		"source":      source,
+		"actor":       actor,
 	}, nil)
 	return normalizeWriteStateForApplyError(err)
 }

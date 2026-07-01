@@ -77,6 +77,7 @@ type Server struct {
 	authenticator     auth.Authenticator
 	routingStats      func() map[string]any
 	availabilityCheck AvailabilityCheck
+	stateEngineGraph  *stateEngineGraphCache
 }
 
 type statusCapturingResponseWriter struct {
@@ -110,6 +111,10 @@ func New(s *store.Store, logger *slog.Logger) *Server {
 		},
 		logger:        logger,
 		authenticator: auth.SingleTenantAuthenticator{},
+		// Keep the graph snapshot warm long enough for back-to-back scoped
+		// plans/applies to actually reuse it. A 5s TTL expired before a single
+		// large cold run even finished, which made every "warm" benchmark miss.
+		stateEngineGraph: newStateEngineGraphCache(64, time.Minute),
 	}
 }
 
@@ -213,6 +218,26 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle(apiVersionPrefix+"/admin/reservations/acquire", s.withAuth(http.HandlerFunc(s.handleAdminReservationsAcquire)))
 	mux.Handle(apiVersionPrefix+"/admin/reservations/{apply_id}/renew", s.withAuth(http.HandlerFunc(s.handleAdminReservationsRenew)))
 	mux.Handle(apiVersionPrefix+"/admin/reservations/{apply_id}/release", s.withAuth(http.HandlerFunc(s.handleAdminReservationsRelease)))
+	mux.Handle(apiVersionPrefix+"/state-engine/capabilities", s.withAuth(http.HandlerFunc(s.handleStateEngineCapabilities)))
+	mux.Handle(apiVersionPrefix+"/state-engine/state/resolve", s.withAuth(http.HandlerFunc(s.handleStateEngineResolve)))
+	mux.Handle(apiVersionPrefix+"/state-engine/scope/expand", s.withAuth(http.HandlerFunc(s.handleStateEngineScopeExpand)))
+	mux.Handle(apiVersionPrefix+"/state-engine/state/slice", s.withAuth(http.HandlerFunc(s.handleStateEngineSlice)))
+	mux.Handle(apiVersionPrefix+"/state-engine/state/commit", s.withAuth(http.HandlerFunc(s.handleStateEngineCommit)))
+	mux.Handle(apiVersionPrefix+"/state-engine/resource-remove/preview", s.withAuth(http.HandlerFunc(s.handleStateEngineResourceRemovePreview)))
+	mux.Handle(apiVersionPrefix+"/state-engine/resource-remove/apply", s.withAuth(http.HandlerFunc(s.handleStateEngineResourceRemoveApply)))
+	mux.Handle(apiVersionPrefix+"/state-engine/resource-move/preview", s.withAuth(http.HandlerFunc(s.handleStateEngineResourceMovePreview)))
+	mux.Handle(apiVersionPrefix+"/state-engine/resource-move/apply", s.withAuth(http.HandlerFunc(s.handleStateEngineResourceMoveApply)))
+	mux.Handle(apiVersionPrefix+"/state-engine/resource-rollback/preview", s.withAuth(http.HandlerFunc(s.handleStateEngineResourceRollbackPreview)))
+	mux.Handle(apiVersionPrefix+"/state-engine/resource-rollback/apply", s.withAuth(http.HandlerFunc(s.handleStateEngineResourceRollbackApply)))
+	mux.Handle(apiVersionPrefix+"/state-engine/reservations/acquire", s.withAuth(http.HandlerFunc(s.handleStateEngineReservationsAcquire)))
+	mux.Handle(apiVersionPrefix+"/state-engine/reservations/{apply_id}/renew", s.withAuth(http.HandlerFunc(s.handleStateEngineReservationsRenew)))
+	mux.Handle(apiVersionPrefix+"/state-engine/reservations/{apply_id}/release", s.withAuth(http.HandlerFunc(s.handleStateEngineReservationsRelease)))
+	mux.Handle(apiVersionPrefix+"/state-engine/apply-runs/begin", s.withAuth(http.HandlerFunc(s.handleStateEngineApplyRunBegin)))
+	mux.Handle(apiVersionPrefix+"/state-engine/apply-runs/{id}/status", s.withAuth(http.HandlerFunc(s.handleStateEngineApplyRunStatus)))
+	mux.Handle(apiVersionPrefix+"/state-engine/apply-runs/{id}/finish", s.withAuth(http.HandlerFunc(s.handleStateEngineApplyRunFinish)))
+	mux.Handle(apiVersionPrefix+"/state-engine/apply-runs/{id}/abort", s.withAuth(http.HandlerFunc(s.handleStateEngineApplyRunAbort)))
+	mux.Handle(apiVersionPrefix+"/state-engine/terraform-lock/acquire", s.withAuth(http.HandlerFunc(s.handleStateEngineTerraformLockAcquire)))
+	mux.Handle(apiVersionPrefix+"/state-engine/terraform-lock/release", s.withAuth(http.HandlerFunc(s.handleStateEngineTerraformLockRelease)))
 
 	return mux
 }
@@ -1379,23 +1404,29 @@ func (s *Server) handleAdminStateRollbackApply(w http.ResponseWriter, r *http.Re
 		writeJSONError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	newVersion, err := st.ReplayVersion(r.Context(), name, target.ID, in.Actor)
-	if err != nil {
-		if errors.Is(err, store.ErrStateNotFound) {
-			writeJSONError(w, http.StatusNotFound, "target version not found")
-			return
-		}
-		writeJSONError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":      true,
-		"state":   name,
-		"current": current,
-		"target":  target,
-		"diff":    diff,
-		"version": newVersion,
-	})
+	s.withStateEngineMutationLock(
+		w, r, st, name, "rollback", firstNonEmptyString(in.Actor, actorFromRequest(r)),
+		[]string{"full-state rollback", "to=" + target.ID},
+		func() {
+			newVersion, err := st.ReplayVersion(r.Context(), name, target.ID, in.Actor)
+			if err != nil {
+				if errors.Is(err, store.ErrStateNotFound) {
+					writeJSONError(w, http.StatusNotFound, "target version not found")
+					return
+				}
+				writeJSONError(w, http.StatusInternalServerError, "internal error")
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"ok":      true,
+				"state":   name,
+				"current": current,
+				"target":  target,
+				"diff":    diff,
+				"version": newVersion,
+			})
+		},
+	)
 }
 
 func (s *Server) handleAdminStateResourceRollbackApply(w http.ResponseWriter, r *http.Request) {
@@ -1427,20 +1458,26 @@ func (s *Server) handleAdminStateResourceRollbackApply(w http.ResponseWriter, r 
 		writeJSONError(w, http.StatusServiceUnavailable, "environment unavailable")
 		return
 	}
-	version, preview, err := st.ReplayResourceVersion(r.Context(), name, in.Address, in.To, firstNonEmptyString(in.Actor, actorFromRequest(r)))
-	if errors.Is(err, store.ErrStateNotFound) {
-		writeJSONError(w, http.StatusNotFound, "state or version not found")
-		return
-	}
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":      true,
-		"preview": preview,
-		"version": version,
-	})
+	s.withStateEngineMutationLock(
+		w, r, st, name, "resource-rollback", firstNonEmptyString(in.Actor, actorFromRequest(r)),
+		[]string{strings.TrimSpace(in.Address), "to=" + strings.TrimSpace(in.To)},
+		func() {
+			version, preview, err := st.ReplayResourceVersion(r.Context(), name, in.Address, in.To, firstNonEmptyString(in.Actor, actorFromRequest(r)))
+			if err != nil {
+				if errors.Is(err, store.ErrStateNotFound) {
+					writeJSONError(w, http.StatusNotFound, "state or version not found")
+					return
+				}
+				writeJSONError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"ok":      true,
+				"preview": preview,
+				"version": version,
+			})
+		},
+	)
 }
 
 func (s *Server) handleAdminStateWriteApply(w http.ResponseWriter, r *http.Request) {
@@ -1455,9 +1492,12 @@ func (s *Server) handleAdminStateWriteApply(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var in struct {
-		RawState string `json:"raw_state"`
-		Source   string `json:"source"`
-		Actor    string `json:"actor"`
+		ApplyID          string   `json:"apply_id"`
+		BaseSerial       int64    `json:"base_serial"`
+		RawState         string   `json:"raw_state"`
+		Source           string   `json:"source"`
+		Actor            string   `json:"actor"`
+		ChangedAddresses []string `json:"changed_addresses"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid json body")
@@ -1468,14 +1508,20 @@ func (s *Server) handleAdminStateWriteApply(w http.ResponseWriter, r *http.Reque
 		writeJSONError(w, http.StatusServiceUnavailable, "environment unavailable")
 		return
 	}
-	if err := st.WriteStateForApply(r.Context(), name, []byte(in.RawState), firstNonEmptyString(in.Source, "apply"), in.Actor); err != nil {
+	var writeErr error
+	if len(in.ChangedAddresses) > 0 {
+		writeErr = st.WriteStateDeltaForApply(r.Context(), name, strings.TrimSpace(in.ApplyID), in.BaseSerial, []byte(in.RawState), firstNonEmptyString(in.Source, "apply"), in.Actor, in.ChangedAddresses)
+	} else {
+		writeErr = st.WriteStateForApply(r.Context(), name, strings.TrimSpace(in.ApplyID), in.BaseSerial, []byte(in.RawState), firstNonEmptyString(in.Source, "apply"), in.Actor)
+	}
+	if writeErr != nil {
 		switch {
-		case errors.Is(err, store.ErrStateNotFound):
+		case errors.Is(writeErr, store.ErrStateNotFound):
 			writeJSONError(w, http.StatusNotFound, "state not found")
-		case errors.Is(err, store.ErrSerialConflict):
-			writeJSONError(w, http.StatusConflict, err.Error())
+		case errors.Is(writeErr, store.ErrSerialConflict):
+			writeJSONError(w, http.StatusConflict, writeErr.Error())
 		default:
-			writeJSONError(w, http.StatusBadRequest, err.Error())
+			writeJSONError(w, http.StatusBadRequest, writeErr.Error())
 		}
 		return
 	}

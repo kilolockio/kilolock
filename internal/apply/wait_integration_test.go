@@ -264,6 +264,65 @@ func TestAcquireWithWait_BudgetExpires(t *testing.T) {
 	}
 }
 
+// TestAcquireWithWait_MixedOverlapWaitsForWholeSet documents the current
+// semantics: if bob wants one overlapping and one disjoint address, the helper
+// waits until it can acquire the full set. It must not acquire only the
+// disjoint reservation while the overlapping one is still held by alice.
+func TestAcquireWithWait_MixedOverlapWaitsForWholeSet(t *testing.T) {
+	r := newApplyWaitRig(t, "wait-mixed-overlap")
+
+	aliceApply := r.startApplyRun(t, "alice")
+	ctxAlice, cancelAlice := context.WithTimeout(testdb.BackgroundTenantCtx(), 10*time.Second)
+	defer cancelAlice()
+	if err := r.store.AcquireReservations(ctxAlice, r.stateID, aliceApply, "alice", []store.Reservation{
+		{AddressGlob: "module.shared.aws_vpc.main", Mode: store.ReservationWrite},
+	}, 5*time.Minute); err != nil {
+		t.Fatalf("alice acquire: %v", err)
+	}
+
+	go func() {
+		time.Sleep(1500 * time.Millisecond)
+		ctx, cancel := context.WithTimeout(testdb.BackgroundTenantCtx(), 5*time.Second)
+		defer cancel()
+		_ = r.store.ReleaseReservations(ctx, aliceApply)
+	}()
+
+	bobApply := r.startApplyRun(t, "bob")
+	ctxBob, cancelBob := context.WithTimeout(testdb.BackgroundTenantCtx(), 10*time.Second)
+	defer cancelBob()
+
+	want := []store.Reservation{
+		{AddressGlob: "module.shared.aws_vpc.main", Mode: store.ReservationWrite},
+		{AddressGlob: "module.web.aws_lb.main", Mode: store.ReservationWrite},
+	}
+
+	start := time.Now()
+	err := acquireWithWait(ctxBob, r.store, r.stateID, bobApply, "bob",
+		want, 5*time.Minute, Options{
+			WaitForReservations: 10 * time.Second,
+		},
+		slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("acquireWithWait: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed < 1500*time.Millisecond {
+		t.Fatalf("acquireWithWait returned after %v, want it to wait for alice release", elapsed)
+	}
+
+	active, err := r.store.ListActiveReservations(ctxBob, r.stateName)
+	if err != nil {
+		t.Fatalf("ListActiveReservations: %v", err)
+	}
+	if len(active) != 2 {
+		t.Fatalf("active = %d, want 2 (bob should hold both reservations after waiting)", len(active))
+	}
+	for _, row := range active {
+		if row.Holder != "bob" {
+			t.Fatalf("active holder = %q, want only bob rows: %+v", row.Holder, active)
+		}
+	}
+}
+
 func TestRenewReservationLeases_StopsOnApplyAbort(t *testing.T) {
 	r := newApplyWaitRig(t, "wait-heartbeat-abort")
 

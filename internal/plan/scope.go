@@ -51,7 +51,12 @@ func NormalizeFileScope(configDir string, files []string) (*FileScope, error) {
 // ApplyFileScope rewrites a full PlanSpec into a file-scoped subset.
 // It narrows write_set by ownership (resource decl filename), then
 // recomputes read_set + reservations from the narrowed write_set.
-func ApplyFileScope(f *File, spec *PlanSpec, scope *FileScope) (*PlanSpec, error) {
+//
+// When state-engine metadata is present, we can be more deliberate about
+// config-only nodes borrowed into the scoped workspace for local planning:
+// delete/forget actions against config-required borrowed nodes are dropped with
+// an explicit note instead of failing the whole scoped lane.
+func ApplyFileScope(f *File, spec *PlanSpec, scope *FileScope, meta *StateEnginePlanMetadata) (*PlanSpec, error) {
 	if scope == nil || len(scope.Relative) == 0 {
 		return spec, nil
 	}
@@ -77,14 +82,64 @@ func ApplyFileScope(f *File, spec *PlanSpec, scope *FileScope) (*PlanSpec, error
 		}
 		actionsByAddr[rc.Address] = rc.Change.Actions
 	}
+	configRequired := make(map[string]struct{})
+	backendWrite := make(map[string]struct{})
+	trustedFetch := make(map[string]struct{})
+	if meta != nil {
+		for _, addr := range meta.FetchAddresses {
+			addr = strings.TrimSpace(addr)
+			if addr != "" {
+				trustedFetch[addr] = struct{}{}
+			}
+		}
+		for _, addr := range meta.WriteAddresses {
+			addr = strings.TrimSpace(addr)
+			if addr != "" {
+				backendWrite[addr] = struct{}{}
+			}
+		}
+		for _, addr := range meta.ConfigRequiredNodes {
+			addr = strings.TrimSpace(addr)
+			if addr != "" {
+				configRequired[addr] = struct{}{}
+			}
+		}
+	}
 
 	narrowWrite := make([]string, 0, len(spec.WriteSet))
 	var droppedDeletes []string
+	var droppedSupportDeletes []string
+	var keptSupportWrites []string
+	var keptBackendWrites []string
+	var keptFetchedWrites []string
 	for _, addr := range spec.WriteSet {
 		owner := normalizePlanFilename(spec.ConfigDir, owners[addr])
 		if owner != "" {
 			if _, ok := allowed[owner]; ok {
 				narrowWrite = append(narrowWrite, addr)
+				continue
+			}
+			if _, ok := trustedFetch[addr]; ok {
+				if isMutatingNonDelete(actionsByAddr[addr]) {
+					narrowWrite = append(narrowWrite, addr)
+					keptFetchedWrites = append(keptFetchedWrites, addr)
+					continue
+				}
+			}
+			if _, ok := backendWrite[addr]; ok {
+				if isMutatingNonDelete(actionsByAddr[addr]) {
+					narrowWrite = append(narrowWrite, addr)
+					keptBackendWrites = append(keptBackendWrites, addr)
+					continue
+				}
+			}
+			if _, ok := configRequired[addr]; ok {
+				if isMutatingNonDelete(actionsByAddr[addr]) {
+					narrowWrite = append(narrowWrite, addr)
+					keptSupportWrites = append(keptSupportWrites, addr)
+				} else if isDeleteOrForget(actionsByAddr[addr]) {
+					droppedSupportDeletes = append(droppedSupportDeletes, addr)
+				}
 			}
 			continue
 		}
@@ -102,6 +157,29 @@ func ApplyFileScope(f *File, spec *PlanSpec, scope *FileScope) (*PlanSpec, error
 				}
 			}
 		}
+		if !kept {
+			if _, ok := trustedFetch[addr]; ok {
+				if isMutatingNonDelete(actionsByAddr[addr]) {
+					narrowWrite = append(narrowWrite, addr)
+					keptFetchedWrites = append(keptFetchedWrites, addr)
+					continue
+				}
+			}
+			if _, ok := backendWrite[addr]; ok {
+				if isMutatingNonDelete(actionsByAddr[addr]) {
+					narrowWrite = append(narrowWrite, addr)
+					keptBackendWrites = append(keptBackendWrites, addr)
+					continue
+				}
+			}
+			if _, ok := configRequired[addr]; ok {
+				if isMutatingNonDelete(actionsByAddr[addr]) {
+					narrowWrite = append(narrowWrite, addr)
+					keptSupportWrites = append(keptSupportWrites, addr)
+					continue
+				}
+			}
+		}
 		// If Terraform didn't attach range metadata (or the config no longer
 		// contains this resource), we have no trustworthy mapping from address
 		// to "owning file". For delete/forget actions, silently dropping the
@@ -109,11 +187,37 @@ func ApplyFileScope(f *File, spec *PlanSpec, scope *FileScope) (*PlanSpec, error
 		// force the operator to add an explicit `removed { from = ... }` block
 		// (or run a full plan/apply).
 		if !kept && isDeleteOrForget(actionsByAddr[addr]) {
+			if _, ok := configRequired[addr]; ok {
+				droppedSupportDeletes = append(droppedSupportDeletes, addr)
+				continue
+			}
 			droppedDeletes = append(droppedDeletes, addr)
 		}
 	}
 	sort.Strings(narrowWrite)
 	sort.Strings(droppedDeletes)
+	sort.Strings(droppedSupportDeletes)
+	sort.Strings(keptSupportWrites)
+	if meta != nil && len(keptSupportWrites) > 0 {
+		meta.Notes = append(meta.Notes,
+			fmt.Sprintf("kept %d mutating write(s) for backend-proven config-required borrowed node(s): %v",
+				len(keptSupportWrites), keptSupportWrites))
+	}
+	if meta != nil && len(keptBackendWrites) > 0 {
+		meta.Notes = append(meta.Notes,
+			fmt.Sprintf("kept %d mutating write(s) for backend-proven widened write node(s): %v",
+				len(keptBackendWrites), keptBackendWrites))
+	}
+	if meta != nil && len(keptFetchedWrites) > 0 {
+		meta.Notes = append(meta.Notes,
+			fmt.Sprintf("kept %d mutating write(s) for backend-proven fetched slice node(s): %v",
+				len(keptFetchedWrites), keptFetchedWrites))
+	}
+	if meta != nil && len(droppedSupportDeletes) > 0 {
+		meta.Notes = append(meta.Notes,
+			fmt.Sprintf("dropped %d delete/forget action(s) for config-required borrowed node(s) outside the selected ownership scope: %v",
+				len(droppedSupportDeletes), droppedSupportDeletes))
+	}
 	if len(droppedDeletes) > 0 {
 		return nil, fmt.Errorf("file-scoped plan dropped %d delete/forget action(s) due to unknown ownership (add `removed { from = ... }` blocks or run a full plan): %v",
 			len(droppedDeletes), droppedDeletes)
@@ -134,6 +238,43 @@ func isDeleteOrForget(actions []string) bool {
 		case "delete", "forget":
 			return true
 		}
+	}
+	return false
+}
+
+func isMutatingNonDelete(actions []string) bool {
+	for _, a := range actions {
+		switch strings.TrimSpace(a) {
+		case "create", "update", "delete", "forget", "no-op", "read":
+			if strings.TrimSpace(a) == "create" || strings.TrimSpace(a) == "update" {
+				return true
+			}
+		case "":
+			continue
+		default:
+			// Covers replace vectors represented as delete/create when called
+			// via per-action slices elsewhere and any future mutating verbs.
+			return true
+		}
+	}
+	trimmed := make([]string, 0, len(actions))
+	for _, a := range actions {
+		if s := strings.TrimSpace(a); s != "" {
+			trimmed = append(trimmed, s)
+		}
+	}
+	if len(trimmed) == 2 {
+		hasDelete := false
+		hasCreate := false
+		for _, a := range trimmed {
+			if a == "delete" {
+				hasDelete = true
+			}
+			if a == "create" {
+				hasCreate = true
+			}
+		}
+		return hasDelete && hasCreate
 	}
 	return false
 }

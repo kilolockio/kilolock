@@ -74,6 +74,7 @@ CREATE TABLE resources (
     index_kind        text NOT NULL DEFAULT 'none'
                           CHECK (index_kind IN ('none', 'int', 'string')),
     index_value       text,
+    schema_version    integer NOT NULL DEFAULT 0,
     attributes        jsonb NOT NULL DEFAULT '{}'::jsonb,
     sensitive_paths   jsonb NOT NULL DEFAULT '[]'::jsonb,
     dependencies_raw  jsonb NOT NULL DEFAULT '[]'::jsonb,

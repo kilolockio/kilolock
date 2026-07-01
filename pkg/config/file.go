@@ -29,6 +29,7 @@ const ConfigFileName = ".kl.toml"
 type FileSettings struct {
 	DatabaseURL    string
 	BackendAddress string
+	Protocol       string
 }
 
 // FindConfigFile walks up the directory tree from startDir looking
@@ -91,6 +92,7 @@ func FindConfigFile(startDir string) (string, error) {
 //
 //	[backend]
 //	address = "http://..."   // → FileSettings.BackendAddress
+//	protocol = "state-engine" // → FileSettings.Protocol
 //	                          //   (advisory; not yet consumed by
 //	                          //    any subcommand, reserved for the
 //	                          //    apply CLI's eventual HTTP-target
@@ -194,6 +196,8 @@ func applyKey(out *FileSettings, section, key, val string) error {
 		out.DatabaseURL = val
 	case "backend_address", "backend.address":
 		out.BackendAddress = val
+	case "protocol", "backend.protocol":
+		out.Protocol = val
 	default:
 		// Unknown key: tolerate so a newer file (with future fields)
 		// doesn't break an older binary. The Load path could log a

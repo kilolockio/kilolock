@@ -16,6 +16,7 @@ func TestParseFileSettings_TopLevelKeys(t *testing.T) {
 # comment line
 database_url = "postgres://kl:kl@localhost:5432/kl?sslmode=disable"
 backend_address = "http://localhost:8080/v1/states/big-state"
+protocol = "state-engine"
 `
 	got, err := parseFileSettings(strings.NewReader(src), "test")
 	if err != nil {
@@ -27,6 +28,9 @@ backend_address = "http://localhost:8080/v1/states/big-state"
 	if want := "http://localhost:8080/v1/states/big-state"; got.BackendAddress != want {
 		t.Errorf("BackendAddress = %q, want %q", got.BackendAddress, want)
 	}
+	if want := "state-engine"; got.Protocol != want {
+		t.Errorf("Protocol = %q, want %q", got.Protocol, want)
+	}
 }
 
 func TestParseFileSettings_SectionScopedKeys(t *testing.T) {
@@ -36,6 +40,7 @@ url = "postgres://example/db"
 
 [backend]
 address = "http://infra.example/v1/states/foo"
+protocol = "state-engine"
 `
 	got, err := parseFileSettings(strings.NewReader(src), "test")
 	if err != nil {
@@ -46,6 +51,9 @@ address = "http://infra.example/v1/states/foo"
 	}
 	if got.BackendAddress != "http://infra.example/v1/states/foo" {
 		t.Errorf("BackendAddress = %q", got.BackendAddress)
+	}
+	if got.Protocol != "state-engine" {
+		t.Errorf("Protocol = %q", got.Protocol)
 	}
 }
 
@@ -212,7 +220,7 @@ func TestLoad_FileSetsDatabaseURLWhenEnvUnset(t *testing.T) {
 func TestLoad_EnvOverridesFile(t *testing.T) {
 	dir := t.TempDir()
 	cfg := filepath.Join(dir, ConfigFileName)
-	if err := os.WriteFile(cfg, []byte(`database_url = "postgres://from-file/db"`), 0o644); err != nil {
+	if err := os.WriteFile(cfg, []byte("database_url = \"postgres://from-file/db\"\nprotocol = \"state-engine\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	origWD, _ := os.Getwd()
@@ -221,10 +229,14 @@ func TestLoad_EnvOverridesFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("KL_DATABASE_URL", "postgres://from-env/db")
+	t.Setenv("KL_PROTOCOL", "terraform-http")
 
 	c := Load()
 	if c.DatabaseURL != "postgres://from-env/db" {
 		t.Errorf("DatabaseURL = %q, want env value to override file", c.DatabaseURL)
+	}
+	if c.Protocol != "terraform-http" {
+		t.Errorf("Protocol = %q, want env value to override file", c.Protocol)
 	}
 	// File still recorded as loaded — env just overrides specific
 	// fields, not the loaded-from-file fact.

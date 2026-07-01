@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/kilolockio/kilolock/internal/tfstate"
+	"github.com/kilolockio/kilolock/pkg/auth"
 )
 
 // ResourceSnapshot is the current/live view of one Terraform resource instance
@@ -79,6 +80,7 @@ type resourceVersionSnapshot struct {
 	ModulePath      string
 	IndexKind       string
 	IndexValue      string
+	SchemaVersion   int
 	Attributes      json.RawMessage
 	SensitivePaths  json.RawMessage
 	DependenciesRaw json.RawMessage
@@ -330,23 +332,78 @@ func (s *Store) ReplayResourceVersion(ctx context.Context, stateName, address, r
 	if err != nil {
 		return nil, nil, err
 	}
-	patched.Serial = 0
-	raw, err := json.Marshal(patched)
-	if err != nil {
-		return nil, nil, fmt.Errorf("marshal patched state: %w", err)
-	}
 	source := "resource-rollback:" + strings.TrimSpace(address)
-	if err := s.WriteStateForApply(ctx, stateName, raw, source, actor); err != nil {
+	stateID, newSerial, err := s.replayResourceVersionDelta(ctx, stateName, strings.TrimSpace(address), preview.TargetVersion.Serial, patched, actor, source)
+	if err != nil {
 		return nil, nil, err
 	}
-
-	newInfo, _, err := s.GetVersionRaw(ctx, stateName, "current")
+	newInfo, err := s.resolveVersionInfo(ctx, stateID, "", fmt.Sprintf("%d", newSerial))
 	if err != nil {
 		return nil, nil, err
 	}
 	preview.CurrentVersion = *currentInfo
 	preview.TargetVersion = *targetInfo
 	return newInfo, preview, nil
+}
+
+func (s *Store) replayResourceVersionDelta(ctx context.Context, stateName, address string, targetSerial int64, patched *tfstate.State, actor, source string) (string, int64, error) {
+	var (
+		stateID   string
+		newSerial int64
+	)
+	tenantID := auth.TenantFromContext(ctx)
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		if err := enforceTenantLifecycleActive(ctx, tx, tenantID); err != nil {
+			return err
+		}
+		currentStateID, currentVersionID, err := s.lookupStateIDAndCurrentTx(ctx, tx, stateName)
+		if err != nil {
+			return err
+		}
+		stateID = currentStateID
+		if strings.TrimSpace(currentVersionID) == "" {
+			return ErrStateNotFound
+		}
+		currentOpen, err := loadOpenResourceRow(ctx, tx, currentStateID, address)
+		if err != nil && !errors.Is(err, ErrStateNotFound) {
+			return err
+		}
+		targetRow, err := loadResourceRowAtSerial(ctx, tx, currentStateID, address, targetSerial)
+		if err != nil {
+			return err
+		}
+		newSerial, err = computeNextStateSerial(ctx, tx, currentStateID)
+		if err != nil {
+			return err
+		}
+		patched.Serial = newSerial
+		raw, err := json.Marshal(patched)
+		if err != nil {
+			return fmt.Errorf("marshal patched state: %w", err)
+		}
+		versionID, err := insertDerivedStateVersion(ctx, tx, tenantID, currentStateID, newSerial, patched.TerraformVersion, raw, source, actor)
+		if err != nil {
+			return err
+		}
+		if currentOpen != nil {
+			if err := closeResources(ctx, tx, []string{currentOpen.id}, newSerial); err != nil {
+				return fmt.Errorf("close current replay row: %w", err)
+			}
+		}
+		if targetRow != nil {
+			if err := insertResourceRows(ctx, tx, tenantID, currentStateID, newSerial, []resourceRow{targetRow.row}); err != nil {
+				return err
+			}
+		}
+		if err := insertOutputs(ctx, tx, tenantID, versionID, patched); err != nil {
+			return err
+		}
+		if err := finalizeDerivedStateVersion(ctx, tx, tenantID, currentStateID, versionID, actor, source, newSerial); err != nil {
+			return err
+		}
+		return nil
+	})
+	return stateID, newSerial, err
 }
 
 func (s *Store) loadResourceReplayInputs(ctx context.Context, stateName, ref string) (*StateVersionInfo, []byte, *StateVersionInfo, []byte, error) {
@@ -489,6 +546,7 @@ func (s *Store) getResourceAtVersion(ctx context.Context, stateID string, serial
 		       module_path,
 		       index_kind,
 		       COALESCE(index_value, ''),
+		       schema_version,
 		       attributes,
 		       sensitive_paths,
 		       dependencies_raw
@@ -508,6 +566,7 @@ func (s *Store) getResourceAtVersion(ctx context.Context, stateID string, serial
 		&row.ModulePath,
 		&row.IndexKind,
 		&row.IndexValue,
+		&row.SchemaVersion,
 		&row.Attributes,
 		&row.SensitivePaths,
 		&row.DependenciesRaw,
@@ -519,6 +578,53 @@ func (s *Store) getResourceAtVersion(ctx context.Context, stateID string, serial
 		return nil, fmt.Errorf("load resource at version: %w", err)
 	}
 	return &row, nil
+}
+
+func loadResourceRowAtSerial(ctx context.Context, tx pgx.Tx, stateID, address string, serial int64) (*openResourceRow, error) {
+	if strings.TrimSpace(stateID) == "" || strings.TrimSpace(address) == "" || serial <= 0 {
+		return nil, nil
+	}
+	const q = `
+		SELECT r.id, r.address, r.mode, r.type, r.name, r.provider, r.module_path,
+		       r.index_kind, r.index_value, r.schema_version, r.attributes::text, r.sensitive_paths::text,
+		       r.dependencies_raw::text, r.attributes_hash
+		FROM   resources r
+		WHERE  r.state_id = $1
+		  AND  r.address = $2
+		  AND  r.create_serial <= $3
+		  AND  (r.delete_serial IS NULL OR r.delete_serial > $3)
+		ORDER  BY r.create_serial DESC
+		LIMIT  1`
+	var (
+		item     openResourceRow
+		indexVal *string
+	)
+	err := tx.QueryRow(ctx, q, stateID, address, serial).Scan(
+		&item.id,
+		&item.row.address,
+		&item.row.mode,
+		&item.row.rtype,
+		&item.row.name,
+		&item.row.provider,
+		&item.row.modulePath,
+		&item.row.indexKind,
+		&indexVal,
+		&item.row.schemaVersion,
+		&item.row.attributes,
+		&item.row.sensitivePaths,
+		&item.row.dependenciesRaw,
+		&item.row.attributesHash,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load resource row at serial: %w", err)
+	}
+	if indexVal != nil {
+		item.row.indexValue = *indexVal
+	}
+	return &item, nil
 }
 
 func currentDependents(ctx context.Context, s *Store, stateID string, serial int64, address string) []string {
@@ -602,6 +708,7 @@ func resourceSnapshotsEqual(a, b *resourceVersionSnapshot) bool {
 		a.ModulePath == b.ModulePath &&
 		a.IndexKind == b.IndexKind &&
 		a.IndexValue == b.IndexValue &&
+		a.SchemaVersion == b.SchemaVersion &&
 		string(a.Attributes) == string(b.Attributes) &&
 		string(a.SensitivePaths) == string(b.SensitivePaths) &&
 		string(a.DependenciesRaw) == string(b.DependenciesRaw)

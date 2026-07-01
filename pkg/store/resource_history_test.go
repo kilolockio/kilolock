@@ -2,7 +2,6 @@ package store
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"github.com/kilolockio/kilolock/internal/tfstate"
@@ -70,14 +69,15 @@ func mustState(t *testing.T, resources map[string]string) *tfstate.State {
 	t.Helper()
 	items := make([]any, 0, len(resources))
 	for address, id := range resources {
-		typ, name, ok := splitSimpleAddress(address)
-		if !ok {
-			t.Fatalf("splitTypeName(%q): failed", address)
+		resource, _, err := tfstate.ParseInstanceAddress(address)
+		if err != nil {
+			t.Fatalf("ParseInstanceAddress(%q): %v", address, err)
 		}
 		items = append(items, map[string]any{
-			"mode":     "managed",
-			"type":     typ,
-			"name":     name,
+			"module":   resource.Module,
+			"mode":     resource.Mode,
+			"type":     resource.Type,
+			"name":     resource.Name,
 			"provider": `provider["registry.terraform.io/hashicorp/aws"]`,
 			"instances": []any{
 				map[string]any{
@@ -103,14 +103,6 @@ func mustState(t *testing.T, resources map[string]string) *tfstate.State {
 		t.Fatalf("parse state: %v", err)
 	}
 	return state
-}
-
-func splitSimpleAddress(addr string) (string, string, bool) {
-	i := strings.IndexByte(addr, '.')
-	if i <= 0 || i >= len(addr)-1 {
-		return "", "", false
-	}
-	return addr[:i], addr[i+1:], true
 }
 
 func assertStateHasID(t *testing.T, st *tfstate.State, address, want string) {

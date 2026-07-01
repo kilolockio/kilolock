@@ -228,6 +228,10 @@ type PlanSpec struct {
 	// Empty means "full config plan" (no file scope requested).
 	ScopedFiles []string `json:"scoped_files,omitempty"`
 
+	// StateEngine records backend-authored scope/slice metadata when the
+	// plan used the state-engine protocol instead of a full trunk fetch.
+	StateEngine *StateEnginePlanMetadata `json:"state_engine,omitempty"`
+
 	// Per-action counters derived from resource_changes[]. Sum
 	// equals len(ResourceChanges); the per-action breakdown is
 	// what the apply UX prints in its preflight summary.
@@ -265,6 +269,41 @@ type PlanSpec struct {
 	// legacy v1 format that predated this field) round-trip
 	// without an explicit empty map in the JSON.
 	Variables map[string]json.RawMessage `json:"variables,omitempty"`
+}
+
+type StateEnginePlanMetadata struct {
+	Mode                   string   `json:"mode,omitempty"`
+	DiscoveryEngine        string   `json:"discovery_engine,omitempty"`
+	FallbackReason         string   `json:"fallback_reason,omitempty"`
+	FetchAddresses         []string `json:"fetch_addresses,omitempty"`
+	WriteAddresses         []string `json:"write_addresses,omitempty"`
+	ConfigRequiredNodes    []string `json:"config_required_nodes,omitempty"`
+	RemovedConfigNodes     []string `json:"removed_config_nodes,omitempty"`
+	MissingFromState       []string `json:"missing_from_state,omitempty"`
+	UndeployedCandidates   []string `json:"undeployed_candidates,omitempty"`
+	UnknownMissing         []string `json:"unknown_missing_from_state,omitempty"`
+	Confidence             string   `json:"confidence,omitempty"`
+	Notes                  []string `json:"notes,omitempty"`
+	ResolveDurationMs      int64    `json:"resolve_duration_ms,omitempty"`
+	ExpandDurationMs       int64    `json:"expand_duration_ms,omitempty"`
+	SliceFetchDurationMs   int64    `json:"slice_fetch_duration_ms,omitempty"`
+	SliceResourceCount     int      `json:"slice_resource_count,omitempty"`
+	GraphCacheHit          bool     `json:"graph_cache_hit,omitempty"`
+	RealizedResourceCount  int      `json:"realized_resource_count,omitempty"`
+	DependencyEdgeCount    int      `json:"dependency_edge_count,omitempty"`
+	InventoryScanCount     int      `json:"inventory_scan_count,omitempty"`
+	WalkedNodeCount        int      `json:"walked_node_count,omitempty"`
+	ConfigNodeCount        int      `json:"config_node_count,omitempty"`
+	ModuleSelectorCount    int      `json:"module_selector_count,omitempty"`
+	FetchAddressCount      int      `json:"fetch_address_count,omitempty"`
+	WriteAddressCount      int      `json:"write_address_count,omitempty"`
+	ReadAddressCount       int      `json:"read_address_count,omitempty"`
+	ServerExpandMs         int64    `json:"server_expand_duration_ms,omitempty"`
+	SliceRequestedCount    int      `json:"slice_requested_count,omitempty"`
+	SliceMaterializedCount int      `json:"slice_materialized_count,omitempty"`
+	ServerSliceMs          int64    `json:"server_slice_duration_ms,omitempty"`
+	SliceBytes             int      `json:"slice_bytes,omitempty"`
+	FullStateBytes         int      `json:"full_state_bytes,omitempty"`
 }
 
 // PlanSummary is the action-counter breakdown.

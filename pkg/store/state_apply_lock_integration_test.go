@@ -95,7 +95,7 @@ func TestWriteStateForApply_IgnoresStateLock(t *testing.T) {
 	//    bug we're fixing. The orchestrator holds row-level
 	//    reservations and explicitly opts out of the v1 whole-state
 	//    lock.
-	if err := s.WriteStateForApply(ctx, "qtest", seedQtestStateRaw(t, 3), "apply", "alice"); err != nil {
+	if err := s.WriteStateForApply(ctx, "qtest", "apply-1", 1, seedQtestStateRaw(t, 3), "apply", "alice"); err != nil {
 		t.Fatalf("WriteStateForApply with leaked lock: expected success, got %v", err)
 	}
 
@@ -104,7 +104,7 @@ func TestWriteStateForApply_IgnoresStateLock(t *testing.T) {
 	//    serial, the second sees ErrSerialConflict (not silent
 	//    overwrite). This is the only safety net left after we
 	//    bypass state_locks; if it ever breaks we'd corrupt trunk.
-	err = s.WriteStateForApply(ctx, "qtest", seedQtestStateRaw(t, 3), "apply", "bob")
+	err = s.WriteStateForApply(ctx, "qtest", "apply-2", 1, seedQtestStateRaw(t, 3), "apply", "bob")
 	if !errors.Is(err, ErrSerialConflict) {
 		t.Fatalf("WriteStateForApply with duplicate serial: expected ErrSerialConflict, got %v", err)
 	}
@@ -112,7 +112,7 @@ func TestWriteStateForApply_IgnoresStateLock(t *testing.T) {
 	// 6. A higher serial via the apply path is fine even with the
 	//    leaked lock still in place — confirming the bypass is not
 	//    conditional on anything in the lock row.
-	if err := s.WriteStateForApply(ctx, "qtest", seedQtestStateRaw(t, 4), "apply", "alice"); err != nil {
+	if err := s.WriteStateForApply(ctx, "qtest", "apply-3", 3, seedQtestStateRaw(t, 4), "apply", "alice"); err != nil {
 		t.Fatalf("WriteStateForApply with new serial: %v", err)
 	}
 

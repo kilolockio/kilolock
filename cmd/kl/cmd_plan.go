@@ -163,6 +163,12 @@ Flags:
   --target ADDR           Terraform target address (repeatable). In v1 this
                           uses Terraform target semantics; state-first closure
                           from ADR-0017 lands in a later phase.
+  Protocol:
+                          default is the standard Terraform HTTP-backend flow.
+                          Set KL_PROTOCOL=state-engine (or
+                          ` + "`protocol = \"state-engine\"`" + ` in .kl.toml)
+                          to fetch only the scoped state slice when the backend
+                          supports /v1/state-engine/.
   --timeout DUR           Maximum wall time for plan + show (default 10m).
 
 Exit codes:
@@ -251,6 +257,11 @@ func runPlan(args []string) int {
 	ctx, cancel := context.WithTimeout(cliContext(), *timeout)
 	defer cancel()
 	icfg := config.Load()
+	protocol := resolvedCLIProtocol(icfg)
+	if protocol != cliProtocolTerraformHTTP && protocol != cliProtocolStateEngine {
+		fmt.Fprintf(os.Stderr, "kl plan: unsupported protocol %q (expected %q or %q)\n", protocol, cliProtocolTerraformHTTP, cliProtocolStateEngine)
+		return 2
+	}
 	resolvedBin, berr := resolveIACBinary(*terraformBin, *iacVersion, icfg.IACBinary, icfg.IACVersion)
 	if berr != nil {
 		fmt.Fprintln(os.Stderr, "kl plan:", berr)
@@ -264,11 +275,13 @@ func runPlan(args []string) int {
 	// require an explicit --state=…. Surface the discovery
 	// outcome to stderr so the operator knows what got pinned.
 	var (
-		stateName string
-		backend   *plan.BackendInfo
-		trunkRaw  []byte
-		srcSerial *int64
+		stateName       string
+		backend         *plan.BackendInfo
+		trunkRaw        []byte
+		srcSerial       *int64
+		stateEngineMeta *plan.StateEnginePlanMetadata
 	)
+	useStateEngineScoped := protocol == cliProtocolStateEngine && (len(files.values) > 0 || len(targets.values) > 0)
 	if bi, berr := plan.DiscoverBackend(absConfigDir); berr == nil {
 		backend = bi
 		stateName = bi.StateName
@@ -277,14 +290,16 @@ func runPlan(args []string) int {
 		// Best-effort fetch of the current trunk to pin source_serial.
 		// This lets apply reject stale plans even when the plan itself is
 		// a full-config plan (no slicing required).
-		if raw, rerr := plan.FetchCurrentStateFromBackend(ctx, backend); rerr == nil {
-			trunkRaw = raw
-			if ts, perr := slice.ParseTrunkState(raw); perr == nil && ts.Serial > 0 {
-				v := ts.Serial
-				srcSerial = &v
+		if !useStateEngineScoped {
+			if raw, rerr := plan.FetchCurrentStateFromBackend(ctx, backend); rerr == nil {
+				trunkRaw = raw
+				if ts, perr := slice.ParseTrunkState(raw); perr == nil && ts.Serial > 0 {
+					v := ts.Serial
+					srcSerial = &v
+				}
+			} else {
+				fmt.Fprintf(os.Stderr, "kl plan: warning: failed to fetch trunk state for source_serial pinning: %v\n", rerr)
 			}
-		} else {
-			fmt.Fprintf(os.Stderr, "kl plan: warning: failed to fetch trunk state for source_serial pinning: %v\n", rerr)
 		}
 	} else if errors.Is(berr, plan.ErrUnsupportedBackend) {
 		fmt.Fprintf(os.Stderr, "kl plan: %v (apply will require --state=…)\n", berr)
@@ -297,6 +312,39 @@ func runPlan(args []string) int {
 			return 2
 		}
 		raw := trunkRaw
+		var configRequiredNodes []string
+		scope, err := plan.NormalizeFileScope(absConfigDir, files.values)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "kl plan:", err)
+			return 2
+		}
+		if useStateEngineScoped {
+			if scoped, serr := fetchScopedStateViaStateEngineForFiles(ctx, absConfigDir, absConfigDir, scope); serr == nil {
+				raw = scoped.Raw
+				srcSerial = scoped.Serial
+				configRequiredNodes = scoped.ConfigRequiredNodes
+				stateEngineMeta = stateEnginePlanMetaFromScopedResult(scoped, 0)
+				fmt.Fprintln(os.Stderr, "kl plan: fetched scoped state slice via state-engine")
+				fmt.Fprintf(os.Stderr, "kl plan: state-engine timings: resolve=%dms expand=%dms fetch=%dms resources=%d slice=%dB\n",
+					stateEngineMeta.ResolveDurationMs,
+					stateEngineMeta.ExpandDurationMs,
+					stateEngineMeta.SliceFetchDurationMs,
+					stateEngineMeta.SliceResourceCount,
+					stateEngineMeta.SliceBytes,
+				)
+				for _, note := range stateEngineMeta.Notes {
+					fmt.Fprintf(os.Stderr, "kl plan: state-engine note: %s\n", note)
+				}
+			} else {
+				if fallback, why := shouldFallbackStateEngineScoped(serr); fallback {
+					fmt.Fprintf(os.Stderr, "kl plan: warning: %s: %v\n", why, serr)
+					stateEngineMeta = stateEngineFallbackPlanMeta(why)
+				} else {
+					fmt.Fprintf(os.Stderr, "kl plan: state-engine scope rejected: %v\n", serr)
+					return 1
+				}
+			}
+		}
 		if len(raw) == 0 {
 			var err error
 			raw, err = plan.FetchCurrentStateFromBackend(ctx, backend)
@@ -305,10 +353,8 @@ func runPlan(args []string) int {
 				return 1
 			}
 		}
-		scope, err := plan.NormalizeFileScope(absConfigDir, files.values)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "kl plan:", err)
-			return 2
+		if stateEngineMeta != nil && len(trunkRaw) > 0 {
+			stateEngineMeta.FullStateBytes = len(trunkRaw)
 		}
 		planMsg := "kl plan: running scoped terraform plan…"
 		if *noRefresh {
@@ -316,8 +362,9 @@ func runPlan(args []string) int {
 		}
 		fmt.Fprintln(os.Stderr, planMsg)
 		jsonBytes, err = plan.RunScopedTerraformPlan(ctx, resolvedBin, absConfigDir, raw, scope, plan.ScopedPlanOptions{
-			Refresh: !*noRefresh,
-			Vars:    vars.values,
+			Refresh:             !*noRefresh,
+			Vars:                vars.values,
+			ConfigRequiredNodes: configRequiredNodes,
 		})
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "kl plan:", err)
@@ -329,6 +376,32 @@ func runPlan(args []string) int {
 			return 2
 		}
 		raw := trunkRaw
+		if useStateEngineScoped {
+			if scoped, serr := fetchScopedStateViaStateEngineForTargets(ctx, absConfigDir, absConfigDir, targets.values); serr == nil {
+				raw = scoped.Raw
+				srcSerial = scoped.Serial
+				stateEngineMeta = stateEnginePlanMetaFromScopedResult(scoped, 0)
+				fmt.Fprintln(os.Stderr, "kl plan: fetched targeted state slice via state-engine")
+				fmt.Fprintf(os.Stderr, "kl plan: state-engine timings: resolve=%dms expand=%dms fetch=%dms resources=%d slice=%dB\n",
+					stateEngineMeta.ResolveDurationMs,
+					stateEngineMeta.ExpandDurationMs,
+					stateEngineMeta.SliceFetchDurationMs,
+					stateEngineMeta.SliceResourceCount,
+					stateEngineMeta.SliceBytes,
+				)
+				for _, note := range stateEngineMeta.Notes {
+					fmt.Fprintf(os.Stderr, "kl plan: state-engine note: %s\n", note)
+				}
+			} else {
+				if fallback, why := shouldFallbackStateEngineScoped(serr); fallback {
+					fmt.Fprintf(os.Stderr, "kl plan: warning: %s: %v\n", why, serr)
+					stateEngineMeta = stateEngineFallbackPlanMeta(why)
+				} else {
+					fmt.Fprintf(os.Stderr, "kl plan: state-engine scope rejected: %v\n", serr)
+					return 1
+				}
+			}
+		}
 		if len(raw) == 0 {
 			var err error
 			raw, err = plan.FetchCurrentStateFromBackend(ctx, backend)
@@ -336,6 +409,9 @@ func runPlan(args []string) int {
 				fmt.Fprintln(os.Stderr, "kl plan: read trunk state from backend:", err)
 				return 1
 			}
+		}
+		if stateEngineMeta != nil && len(trunkRaw) > 0 {
+			stateEngineMeta.FullStateBytes = len(trunkRaw)
 		}
 		planMsg := "kl plan: running targeted scoped terraform plan…"
 		if *noRefresh {
@@ -422,6 +498,7 @@ func runPlan(args []string) int {
 		stateName:    stateName,
 		sourceSerial: srcSerial,
 		scopeFiles:   files.values,
+		stateEngine:  stateEngineMeta,
 		outPath:      outPath,
 		generatedAt:  time.Now().UTC(),
 		explicitVars: vars.values,
@@ -460,6 +537,7 @@ type planEmitInput struct {
 	stateName    string
 	sourceSerial *int64
 	scopeFiles   []string
+	stateEngine  *plan.StateEnginePlanMetadata
 	outPath      string // "-" for stdout, otherwise filesystem path
 	generatedAt  time.Time
 	explicitVars map[string]json.RawMessage
@@ -490,9 +568,12 @@ func emitPlanSpec(in planEmitInput) (int, *plan.PlanSpec, error) {
 	if err != nil {
 		return 1, nil, err
 	}
-	spec, err = plan.ApplyFileScope(parsed, spec, scope)
+	spec, err = plan.ApplyFileScope(parsed, spec, scope, in.stateEngine)
 	if err != nil {
 		return 1, nil, err
+	}
+	if in.stateEngine != nil {
+		spec.StateEngine = in.stateEngine
 	}
 	if len(in.scopeFiles) > 0 && len(spec.WriteSet) == 0 {
 		return 1, spec, formatFileScopeEmptyWriteSet(parsed, spec, scope)
@@ -579,6 +660,121 @@ func renderPlanSummary(w io.Writer, spec *plan.PlanSpec) {
 
 	if spec.StateName != "" {
 		fmt.Fprintf(tw, "  state:\t%s\n", spec.StateName)
+	}
+	if spec.StateEngine != nil {
+		if spec.StateEngine.Mode != "" {
+			fmt.Fprintf(tw, "  state-engine mode:\t%s\n", spec.StateEngine.Mode)
+		}
+		if spec.StateEngine.DiscoveryEngine != "" {
+			fmt.Fprintf(tw, "  discovery engine:\t%s\n", spec.StateEngine.DiscoveryEngine)
+		}
+		if spec.StateEngine.FallbackReason != "" {
+			fmt.Fprintf(tw, "  fallback reason:\t%s\n", spec.StateEngine.FallbackReason)
+		}
+		if spec.StateEngine.Confidence != "" {
+			fmt.Fprintf(tw, "  state-engine confidence:\t%s\n", spec.StateEngine.Confidence)
+		}
+		if spec.StateEngine.ResolveDurationMs > 0 || spec.StateEngine.ExpandDurationMs > 0 || spec.StateEngine.SliceFetchDurationMs > 0 {
+			fmt.Fprintf(tw, "  state-engine timings:\tresolve=%dms expand=%dms fetch=%dms\n",
+				spec.StateEngine.ResolveDurationMs,
+				spec.StateEngine.ExpandDurationMs,
+				spec.StateEngine.SliceFetchDurationMs,
+			)
+		}
+		if spec.StateEngine.RealizedResourceCount > 0 || spec.StateEngine.DependencyEdgeCount > 0 || spec.StateEngine.InventoryScanCount > 0 || spec.StateEngine.GraphCacheHit || spec.StateEngine.WalkedNodeCount > 0 || spec.StateEngine.ConfigNodeCount > 0 || spec.StateEngine.ModuleSelectorCount > 0 {
+			fmt.Fprintf(tw, "  scope diagnostics:\tcache_hit=%t realized=%d edges=%d scanned=%d walked=%d config=%d modules=%d\n",
+				spec.StateEngine.GraphCacheHit,
+				spec.StateEngine.RealizedResourceCount,
+				spec.StateEngine.DependencyEdgeCount,
+				spec.StateEngine.InventoryScanCount,
+				spec.StateEngine.WalkedNodeCount,
+				spec.StateEngine.ConfigNodeCount,
+				spec.StateEngine.ModuleSelectorCount,
+			)
+		}
+		if spec.StateEngine.FetchAddressCount > 0 || spec.StateEngine.WriteAddressCount > 0 || spec.StateEngine.ReadAddressCount > 0 {
+			fmt.Fprintf(tw, "  scope addresses:\tfetch=%d write=%d read=%d\n",
+				spec.StateEngine.FetchAddressCount,
+				spec.StateEngine.WriteAddressCount,
+				spec.StateEngine.ReadAddressCount,
+			)
+		}
+		if spec.StateEngine.SliceResourceCount > 0 {
+			fmt.Fprintf(tw, "  slice resources:\t%d\n", spec.StateEngine.SliceResourceCount)
+		}
+		if spec.StateEngine.SliceRequestedCount > 0 || spec.StateEngine.SliceMaterializedCount > 0 || spec.StateEngine.ServerSliceMs > 0 {
+			fmt.Fprintf(tw, "  slice diagnostics:\trequested=%d materialized=%d server_fetch=%dms\n",
+				spec.StateEngine.SliceRequestedCount,
+				spec.StateEngine.SliceMaterializedCount,
+				spec.StateEngine.ServerSliceMs,
+			)
+		}
+		if spec.StateEngine.SliceBytes > 0 {
+			fmt.Fprintf(tw, "  state-engine slice:\t%d bytes\n", spec.StateEngine.SliceBytes)
+		}
+		if spec.StateEngine.FullStateBytes > 0 {
+			fmt.Fprintf(tw, "  full state payload:\t%d bytes\n", spec.StateEngine.FullStateBytes)
+		}
+		if n := len(spec.StateEngine.ConfigRequiredNodes); n > 0 {
+			fmt.Fprintf(tw, "  config-required nodes (top %d):\n", min(n, maxAddressesShown))
+			for i, a := range spec.StateEngine.ConfigRequiredNodes {
+				if i >= maxAddressesShown {
+					fmt.Fprintf(tw, "    ... and %d more\n", n-maxAddressesShown)
+					break
+				}
+				fmt.Fprintf(tw, "    %s\n", a)
+			}
+		}
+		if n := len(spec.StateEngine.RemovedConfigNodes); n > 0 {
+			fmt.Fprintf(tw, "  removed config nodes (top %d):\n", min(n, maxAddressesShown))
+			for i, a := range spec.StateEngine.RemovedConfigNodes {
+				if i >= maxAddressesShown {
+					fmt.Fprintf(tw, "    ... and %d more\n", n-maxAddressesShown)
+					break
+				}
+				fmt.Fprintf(tw, "    %s\n", a)
+			}
+		}
+		if n := len(spec.StateEngine.FetchAddresses); n > 0 {
+			fmt.Fprintf(tw, "  fetched slice addresses (top %d):\n", min(n, maxAddressesShown))
+			for i, a := range spec.StateEngine.FetchAddresses {
+				if i >= maxAddressesShown {
+					fmt.Fprintf(tw, "    ... and %d more\n", n-maxAddressesShown)
+					break
+				}
+				fmt.Fprintf(tw, "    %s\n", a)
+			}
+		}
+		if n := len(spec.StateEngine.UndeployedCandidates); n > 0 {
+			fmt.Fprintf(tw, "  undeployed candidates (top %d):\n", min(n, maxAddressesShown))
+			for i, a := range spec.StateEngine.UndeployedCandidates {
+				if i >= maxAddressesShown {
+					fmt.Fprintf(tw, "    ... and %d more\n", n-maxAddressesShown)
+					break
+				}
+				fmt.Fprintf(tw, "    %s\n", a)
+			}
+		}
+		if n := len(spec.StateEngine.UnknownMissing); n > 0 {
+			fmt.Fprintf(tw, "  unknown missing from state (top %d):\n", min(n, maxAddressesShown))
+			for i, a := range spec.StateEngine.UnknownMissing {
+				if i >= maxAddressesShown {
+					fmt.Fprintf(tw, "    ... and %d more\n", n-maxAddressesShown)
+					break
+				}
+				fmt.Fprintf(tw, "    %s\n", a)
+			}
+		}
+		if n := len(spec.StateEngine.Notes); n > 0 {
+			fmt.Fprintf(tw, "  state-engine notes:\n")
+			for i, a := range spec.StateEngine.Notes {
+				if i >= maxAddressesShown {
+					fmt.Fprintf(tw, "    ... and %d more\n", n-maxAddressesShown)
+					break
+				}
+				fmt.Fprintf(tw, "    %s\n", a)
+			}
+		}
 	}
 
 	if n := len(spec.WriteSet); n > 0 {

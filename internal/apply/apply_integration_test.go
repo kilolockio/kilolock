@@ -583,6 +583,486 @@ func TestApplyOrchestrator_HeartbeatRenewsReservations(t *testing.T) {
 	}
 }
 
+func TestApplyOrchestrator_StateEngineCoarseLock_BlocksVanillaTerraformAndIsReleased(t *testing.T) {
+	stateName := "apply-it-state-engine-lock"
+	rig := newApplyRig(t, stateName)
+	rig.slowSleepFixture(t, "0s", "5s")
+
+	spec := handCraftSingleAddrPlanSpec(t, rig.workDir, "time_sleep.slow")
+
+	ctx, cancel := context.WithTimeout(testdb.BackgroundTenantCtx(), 5*time.Minute)
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := Run(ctx, rig.store, Options{
+			Spec:               spec,
+			StateName:          stateName,
+			Actor:              "integration-test",
+			WorkDir:            rig.workDir,
+			TerraformBin:       rig.terraformBin,
+			Lease:              2 * time.Second,
+			SkipCleanup:        false,
+			NoColor:            true,
+			UseStateEngineLock: true,
+		}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		errCh <- err
+	}()
+
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		var count int
+		if err := rig.pool.QueryRow(ctx,
+			`SELECT COUNT(*)
+			 FROM state_locks sl
+			 JOIN states s ON s.id = sl.state_id
+			 WHERE s.name = $1 AND sl.path LIKE $2`,
+			stateName, "state-engine://%",
+		).Scan(&count); err != nil {
+			t.Fatalf("query state-engine coarse lock: %v", err)
+		}
+		if count > 0 {
+			break
+		}
+		select {
+		case err := <-errCh:
+			if err != nil {
+				t.Fatalf("apply.Run exited early: %v", err)
+			}
+			t.Fatal("apply.Run finished before coarse lock was observed")
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for state-engine coarse lock")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	lockInfo := store.LockInfo{
+		ID:        "vanilla-lock-attempt",
+		Operation: "OperationTypeApply",
+		Info:      "integration-test",
+		Who:       "vanilla-terraform",
+		Version:   "1.13.4",
+		Created:   time.Now().UTC().Format(time.RFC3339Nano),
+		Path:      stateName,
+	}
+	current, err := rig.store.AcquireLock(ctx, stateName, lockInfo)
+	if !errors.Is(err, store.ErrAlreadyLocked) {
+		t.Fatalf("AcquireLock during state-engine apply: want ErrAlreadyLocked, got current=%+v err=%v", current, err)
+	}
+	if !strings.HasPrefix(current.Path, "state-engine://") {
+		t.Fatalf("conflicting lock path=%q want state-engine://...", current.Path)
+	}
+
+	if err := <-errCh; err != nil {
+		t.Fatalf("apply.Run: %v", err)
+	}
+
+	var count int
+	if err := rig.pool.QueryRow(ctx,
+		`SELECT COUNT(*)
+		 FROM state_locks sl
+		 JOIN states s ON s.id = sl.state_id
+		 WHERE s.name = $1 AND sl.path LIKE $2`,
+		stateName, "state-engine://%",
+	).Scan(&count); err != nil {
+		t.Fatalf("query coarse lock after apply: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("coarse lock rows after apply=%d want 0", count)
+	}
+}
+
+func TestApplyOrchestrator_StateEngineCoarseLockReleasedOnCancelAndVanillaLockRecovers(t *testing.T) {
+	stateName := "apply-it-state-engine-cancel"
+	rig := newApplyRig(t, stateName)
+	rig.slowSleepFixture(t, "0s", "30s")
+
+	spec := handCraftSingleAddrPlanSpec(t, rig.workDir, "time_sleep.slow")
+
+	parentCtx, parentCancel := context.WithCancel(testdb.BackgroundTenantCtx())
+	defer parentCancel()
+	ctx, timeoutCancel := context.WithTimeout(parentCtx, 2*time.Minute)
+	defer timeoutCancel()
+
+	type runResult struct {
+		res *Result
+		err error
+	}
+	resCh := make(chan runResult, 1)
+	go func() {
+		res, err := Run(ctx, rig.store, Options{
+			Spec:               spec,
+			StateName:          stateName,
+			Actor:              "integration-test",
+			WorkDir:            rig.workDir,
+			TerraformBin:       rig.terraformBin,
+			Lease:              5 * time.Second,
+			SkipCleanup:        false,
+			NoColor:            true,
+			UseStateEngineLock: true,
+		}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		resCh <- runResult{res: res, err: err}
+	}()
+
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		var count int
+		if err := rig.pool.QueryRow(testdb.BackgroundTenantCtx(),
+			`SELECT COUNT(*)
+			 FROM state_locks sl
+			 JOIN states s ON s.id = sl.state_id
+			 WHERE s.name = $1 AND sl.path LIKE $2`,
+			stateName, "state-engine://%",
+		).Scan(&count); err != nil {
+			t.Fatalf("query state-engine coarse lock: %v", err)
+		}
+		if count > 0 {
+			break
+		}
+		select {
+		case got := <-resCh:
+			if got.err != nil {
+				t.Fatalf("apply.Run exited before cancel path was exercised: %v", got.err)
+			}
+			t.Fatal("apply.Run finished before coarse lock was observed")
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for state-engine coarse lock")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	parentCancel()
+
+	got := <-resCh
+	if got.err == nil {
+		t.Fatalf("expected cancellation error, got nil result=%+v", got.res)
+	}
+	if !errors.Is(got.err, context.Canceled) && !strings.Contains(strings.ToLower(got.err.Error()), "aborted") {
+		t.Fatalf("unexpected cancel error: %v", got.err)
+	}
+	if got.res == nil || got.res.ApplyID == "" {
+		t.Fatalf("expected apply result with ApplyID after cancel, got %+v", got.res)
+	}
+
+	var status string
+	if err := rig.pool.QueryRow(testdb.BackgroundTenantCtx(),
+		`SELECT status FROM apply_runs WHERE id = $1`,
+		got.res.ApplyID,
+	).Scan(&status); err != nil {
+		t.Fatalf("query canceled apply_runs: %v", err)
+	}
+	if status != "aborted" {
+		t.Fatalf("apply_runs.status after cancel = %q want %q", status, "aborted")
+	}
+
+	var coarseLocks int
+	if err := rig.pool.QueryRow(testdb.BackgroundTenantCtx(),
+		`SELECT COUNT(*)
+		 FROM state_locks sl
+		 JOIN states s ON s.id = sl.state_id
+		 WHERE s.name = $1 AND sl.path LIKE $2`,
+		stateName, "state-engine://%",
+	).Scan(&coarseLocks); err != nil {
+		t.Fatalf("query coarse lock after cancel: %v", err)
+	}
+	if coarseLocks != 0 {
+		t.Fatalf("coarse lock rows after cancel=%d want 0", coarseLocks)
+	}
+
+	var reservations int
+	if err := rig.pool.QueryRow(testdb.BackgroundTenantCtx(),
+		`SELECT COUNT(*) FROM resource_reservations WHERE apply_id = $1`,
+		got.res.ApplyID,
+	).Scan(&reservations); err != nil {
+		t.Fatalf("query reservations after cancel: %v", err)
+	}
+	if reservations != 0 {
+		t.Fatalf("reservations after cancel=%d want 0", reservations)
+	}
+
+	lockInfo := store.LockInfo{
+		ID:        "vanilla-lock-after-cancel",
+		Operation: "OperationTypeApply",
+		Info:      "integration-test",
+		Who:       "vanilla-terraform",
+		Version:   "1.13.4",
+		Created:   time.Now().UTC().Format(time.RFC3339Nano),
+		Path:      stateName,
+	}
+	current, err := rig.store.AcquireLock(testdb.BackgroundTenantCtx(), stateName, lockInfo)
+	if err != nil {
+		t.Fatalf("AcquireLock after cancel: current=%+v err=%v", current, err)
+	}
+	if err := rig.store.ReleaseLock(testdb.BackgroundTenantCtx(), stateName, lockInfo.ID, "vanilla-terraform"); err != nil {
+		t.Fatalf("ReleaseLock after cancel: %v", err)
+	}
+}
+
+func TestApplyOrchestrator_FullTrunkFallbackSpec_StaysOffTrustedStateEngineLane(t *testing.T) {
+	stateName := "apply-it-full-trunk-fallback"
+	rig := newApplyRig(t, stateName)
+	rig.twoResourceFixture(t,
+		"old-a", "old-b",
+		"new-a", "old-b",
+	)
+	spec := handCraftPlanSpec(t, rig.workDir, "terraform_data.a")
+	spec.StateEngine = &plan.StateEnginePlanMetadata{
+		Mode:           "full-trunk-fallback",
+		FallbackReason: "native scoped state-engine path unavailable; falling back to full trunk",
+	}
+
+	ctx, cancel := context.WithTimeout(testdb.BackgroundTenantCtx(), 5*time.Minute)
+	defer cancel()
+
+	res, err := Run(ctx, rig.store, Options{
+		Spec:         spec,
+		StateName:    stateName,
+		Actor:        "integration-test",
+		WorkDir:      rig.workDir,
+		TerraformBin: rig.terraformBin,
+		Lease:        5 * time.Minute,
+		SkipCleanup:  false,
+		NoColor:      true,
+		// This is the critical assertion path: a fallback-classified spec
+		// must stay on the legacy snapshot-merge lane and never take the
+		// trusted state-engine coarse-lock/delta path.
+		UseStateEngineLock: false,
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("apply.Run fallback lane: %v\nresult: %+v", err, res)
+	}
+	if res == nil {
+		t.Fatal("apply.Run returned nil result")
+	}
+	if got, want := res.CommitMode, "snapshot merge"; got != want {
+		t.Fatalf("commit mode: got %q want %q", got, want)
+	}
+	if len(res.NativeIntentWriteSet) != 0 || len(res.NativeIntentDeleteSet) != 0 || strings.TrimSpace(res.NativeIntentSource) != "" {
+		t.Fatalf("unexpected native intent fields on fallback lane: source=%q writes=%v deletes=%v",
+			res.NativeIntentSource, res.NativeIntentWriteSet, res.NativeIntentDeleteSet)
+	}
+
+	var coarseCount int
+	if err := rig.pool.QueryRow(ctx,
+		`SELECT COUNT(*)
+		 FROM state_locks sl
+		 JOIN states s ON s.id = sl.state_id
+		 WHERE s.name = $1 AND sl.path LIKE $2`,
+		stateName, "state-engine://%",
+	).Scan(&coarseCount); err != nil {
+		t.Fatalf("query state-engine coarse lock rows: %v", err)
+	}
+	if coarseCount != 0 {
+		t.Fatalf("state-engine coarse lock rows=%d want 0 for full-trunk fallback lane", coarseCount)
+	}
+
+	raw, err := rig.store.GetCurrentState(ctx, stateName)
+	if err != nil {
+		t.Fatalf("fetch fallback-lane trunk: %v", err)
+	}
+	var snap map[string]any
+	if err := json.Unmarshal(raw, &snap); err != nil {
+		t.Fatalf("parse fallback-lane trunk: %v", err)
+	}
+	got := extractInputs(t, snap)
+	if got["terraform_data.a"] != "new-a" {
+		t.Fatalf("post-apply terraform_data.a.input: got %q want %q", got["terraform_data.a"], "new-a")
+	}
+	if got["terraform_data.b"] != "old-b" {
+		t.Fatalf("non-write_set terraform_data.b.input must be preserved: got %q want %q", got["terraform_data.b"], "old-b")
+	}
+}
+
+func TestApplyOrchestrator_NativeSliceSpec_UsesTrustedStateEngineLane(t *testing.T) {
+	stateName := "apply-it-native-slice-trusted"
+	rig := newApplyRig(t, stateName)
+	rig.twoResourceFixture(t,
+		"old-a", "old-b",
+		"new-a", "old-b",
+	)
+	spec := handCraftPlanSpec(t, rig.workDir, "terraform_data.a")
+	spec.StateEngine = &plan.StateEnginePlanMetadata{
+		Mode:                "native-slice",
+		Confidence:          "safe",
+		FetchAddresses:      []string{"terraform_data.a"},
+		MissingFromState:    []string{},
+		UnknownMissing:      []string{},
+		ConfigRequiredNodes: nil,
+	}
+
+	ctx, cancel := context.WithTimeout(testdb.BackgroundTenantCtx(), 5*time.Minute)
+	defer cancel()
+
+	res, err := Run(ctx, rig.store, Options{
+		Spec:               spec,
+		StateName:          stateName,
+		Actor:              "integration-test",
+		WorkDir:            rig.workDir,
+		TerraformBin:       rig.terraformBin,
+		Lease:              5 * time.Minute,
+		SkipCleanup:        false,
+		NoColor:            true,
+		UseStateEngineLock: true,
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("apply.Run native trusted lane: %v\nresult: %+v", err, res)
+	}
+	if res == nil {
+		t.Fatal("apply.Run returned nil result")
+	}
+	if got, want := res.CommitMode, "state-engine delta"; got != want {
+		t.Fatalf("commit mode: got %q want %q", got, want)
+	}
+	if got, want := strings.TrimSpace(res.NativeIntentSource), "terraform validation replan"; got != want {
+		t.Fatalf("native intent source: got %q want %q", got, want)
+	}
+	if got := res.NativeIntentWriteSet; !(len(got) == 1 && got[0] == "terraform_data.a") {
+		t.Fatalf("native intent write set: got %v want [terraform_data.a]", got)
+	}
+	if len(res.NativeIntentDeleteSet) != 0 {
+		t.Fatalf("native intent delete set: got %v want empty", res.NativeIntentDeleteSet)
+	}
+	if got := res.AppliedAddresses; !(len(got) == 1 && got[0] == "terraform_data.a") {
+		t.Fatalf("applied addresses: got %v want [terraform_data.a]", got)
+	}
+
+	var coarseCount int
+	if err := rig.pool.QueryRow(ctx,
+		`SELECT COUNT(*)
+		 FROM state_locks sl
+		 JOIN states s ON s.id = sl.state_id
+		 WHERE s.name = $1 AND sl.path LIKE $2`,
+		stateName, "state-engine://%",
+	).Scan(&coarseCount); err != nil {
+		t.Fatalf("query state-engine coarse lock rows after trusted apply: %v", err)
+	}
+	if coarseCount != 0 {
+		t.Fatalf("state-engine coarse lock rows after apply=%d want 0", coarseCount)
+	}
+
+	raw, err := rig.store.GetCurrentState(ctx, stateName)
+	if err != nil {
+		t.Fatalf("fetch trusted-lane trunk: %v", err)
+	}
+	var snap map[string]any
+	if err := json.Unmarshal(raw, &snap); err != nil {
+		t.Fatalf("parse trusted-lane trunk: %v", err)
+	}
+	got := extractInputs(t, snap)
+	if got["terraform_data.a"] != "new-a" {
+		t.Fatalf("post-apply terraform_data.a.input: got %q want %q", got["terraform_data.a"], "new-a")
+	}
+	if got["terraform_data.b"] != "old-b" {
+		t.Fatalf("non-write_set terraform_data.b.input must be preserved: got %q want %q", got["terraform_data.b"], "old-b")
+	}
+}
+
+func TestApplyOrchestrator_NativeSliceRemovedConfigDelete_UsesTrustedStateEngineLane(t *testing.T) {
+	stateName := "apply-it-native-slice-delete"
+	rig := newApplyRig(t, stateName)
+	rig.twoResourceFixture(t,
+		"old-a", "old-b",
+		"old-a", "old-b",
+	)
+
+	const deleteHCL = `terraform {
+  required_version = ">= 1.4.0"
+}
+
+resource "terraform_data" "a" {
+  input = "old-a"
+}
+
+removed {
+  from = terraform_data.b
+}
+`
+	if err := os.WriteFile(filepath.Join(rig.workDir, "main.tf"), []byte(deleteHCL), 0o644); err != nil {
+		t.Fatalf("write delete main.tf: %v", err)
+	}
+
+	spec := &plan.PlanSpec{
+		FormatVersion: plan.CurrentSpecFormatVersion,
+		GeneratedAt:   time.Now().UTC(),
+		ConfigDir:     rig.workDir,
+		PlanSummary: plan.PlanSummary{
+			Delete: 1,
+			Total:  1,
+		},
+		WriteSet:     []string{"terraform_data.b"},
+		ReadSet:      []string{"terraform_data.b"},
+		HCLFootprint: []string{"terraform_data.a", "terraform_data.b"},
+		Reservations: []plan.PlanReservation{
+			{Address: "terraform_data.b", Mode: "write"},
+		},
+		StateEngine: &plan.StateEnginePlanMetadata{
+			Mode:                "native-slice",
+			Confidence:          "safe",
+			FetchAddresses:      []string{"terraform_data.a", "terraform_data.b"},
+			RemovedConfigNodes:  []string{"terraform_data.b"},
+			MissingFromState:    []string{},
+			UnknownMissing:      []string{},
+			ConfigRequiredNodes: nil,
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(testdb.BackgroundTenantCtx(), 5*time.Minute)
+	defer cancel()
+
+	res, err := Run(ctx, rig.store, Options{
+		Spec:               spec,
+		StateName:          stateName,
+		Actor:              "integration-test",
+		WorkDir:            rig.workDir,
+		TerraformBin:       rig.terraformBin,
+		Lease:              5 * time.Minute,
+		SkipCleanup:        false,
+		NoColor:            true,
+		UseStateEngineLock: true,
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("apply.Run native trusted delete lane: %v\nresult: %+v", err, res)
+	}
+	if res == nil {
+		t.Fatal("apply.Run returned nil result")
+	}
+	if got, want := res.CommitMode, "state-engine delta"; got != want {
+		t.Fatalf("commit mode: got %q want %q", got, want)
+	}
+	if got, want := strings.TrimSpace(res.NativeIntentSource), "terraform validation replan"; got != want {
+		t.Fatalf("native intent source: got %q want %q", got, want)
+	}
+	if got := res.NativeIntentWriteSet; !(len(got) == 1 && got[0] == "terraform_data.b") {
+		t.Fatalf("native intent write set: got %v want [terraform_data.b]", got)
+	}
+	if got := res.NativeIntentDeleteSet; !(len(got) == 1 && got[0] == "terraform_data.b") {
+		t.Fatalf("native intent delete set: got %v want [terraform_data.b]", got)
+	}
+	if got := res.AppliedAddresses; !(len(got) == 1 && got[0] == "terraform_data.b") {
+		t.Fatalf("applied addresses: got %v want [terraform_data.b]", got)
+	}
+
+	raw, err := rig.store.GetCurrentState(ctx, stateName)
+	if err != nil {
+		t.Fatalf("fetch trusted-delete trunk: %v", err)
+	}
+	var snap map[string]any
+	if err := json.Unmarshal(raw, &snap); err != nil {
+		t.Fatalf("parse trusted-delete trunk: %v", err)
+	}
+	got := extractInputs(t, snap)
+	if got["terraform_data.a"] != "old-a" {
+		t.Fatalf("post-apply terraform_data.a.input: got %q want %q", got["terraform_data.a"], "old-a")
+	}
+	if _, ok := got["terraform_data.b"]; ok {
+		t.Fatalf("terraform_data.b should have been deleted, but is still present: %v", got)
+	}
+}
+
 func TestApplyOrchestrator_StalePlanRejectedWhenReadSetChanged(t *testing.T) {
 	stateName := "apply-it-stale"
 	rig := newApplyRig(t, stateName)

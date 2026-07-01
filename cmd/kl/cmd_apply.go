@@ -100,6 +100,12 @@ func runApply(args []string) int {
 		fmt.Fprintln(os.Stderr, "kl apply: use either --target or --plan-spec, not both")
 		return 2
 	}
+	icfg := config.Load()
+	protocol := resolvedCLIProtocol(icfg)
+	if protocol != cliProtocolTerraformHTTP && protocol != cliProtocolStateEngine {
+		fmt.Fprintf(os.Stderr, "kl apply: unsupported protocol %q (expected %q or %q)\n", protocol, cliProtocolTerraformHTTP, cliProtocolStateEngine)
+		return 2
+	}
 
 	// Defaulting plan-spec to ./kl-plan.json mirrors the
 	// engineer flow: `cd module/; kl plan && kl
@@ -140,7 +146,7 @@ func runApply(args []string) int {
 			fmt.Fprintln(os.Stdout, "apply dry-run complete (no terraform apply executed)")
 			return 0
 		}
-		if !*orchestrated {
+		if !shouldUseNativeStateEngineApply(protocol, spec, *orchestrated) {
 			if err := runBackendScopedApply(cliContext(), spec, resolvedSpecPath, *workDirFlag, *terraformBin, *iacVersion, *noColor); err != nil {
 				fmt.Fprintln(os.Stderr, "kl apply:", err)
 				return 1
@@ -172,7 +178,7 @@ func runApply(args []string) int {
 			fmt.Fprintln(os.Stdout, "apply dry-run complete (no terraform apply executed)")
 			return 0
 		}
-		if !*orchestrated {
+		if !shouldUseNativeStateEngineApply(protocol, spec, *orchestrated) {
 			if err := runBackendScopedApply(cliContext(), spec, resolvedSpecPath, *workDirFlag, *terraformBin, *iacVersion, *noColor); err != nil {
 				fmt.Fprintln(os.Stderr, "kl apply:", err)
 				return 1
@@ -242,16 +248,20 @@ func runApply(args []string) int {
 		return 1
 	}
 
+	execMode := resolveApplyExecutionMode(protocol, spec, *orchestrated)
+
+	if resolvedSpecPath != "" && *dryRun {
+		renderApplyPreflight(os.Stderr, spec, "spec", nil, true, nil)
+		fmt.Fprintln(os.Stdout, "apply dry-run complete (no terraform apply executed)")
+		return 0
+	}
+
 	// Default apply mode is backend-driven terraform apply, so local CLI usage
 	// does not require direct DB access. Every apply mode now starts from a
 	// plan spec, whether loaded explicitly or built implicitly.
-	if !*orchestrated {
+	if !execMode.UseNativeApply {
 		if resolvedSpecPath != "" {
 			renderApplyPreflight(os.Stderr, spec, "spec", nil, *dryRun, nil)
-			if *dryRun {
-				fmt.Fprintln(os.Stdout, "apply dry-run complete (no terraform apply executed)")
-				return 0
-			}
 		}
 		if err := runBackendScopedApply(cliContext(), spec, resolvedSpecPath, *workDirFlag, *terraformBin, *iacVersion, *noColor); err != nil {
 			fmt.Fprintln(os.Stderr, "kl apply:", err)
@@ -267,7 +277,6 @@ func runApply(args []string) int {
 		return 2
 	}
 
-	icfg := config.Load()
 	logger := newLogger(icfg.LogFormat, icfg.LogLevel)
 	ctx, cancel := context.WithTimeout(cliContext(), applyTimeout)
 	defer cancel()
@@ -276,7 +285,7 @@ func runApply(args []string) int {
 		fmt.Fprintf(os.Stderr, "kl apply: discover backend API client: %v\n", err)
 		return 1
 	}
-	st := newRemoteApplyClient(client, resolvedStateName)
+	st := newRemoteApplyClient(client, resolvedStateName, execMode.UseStateEngineProtocol)
 	resolvedBin, berr := resolveIACBinary(*terraformBin, *iacVersion, icfg.IACBinary, icfg.IACVersion)
 	if berr != nil {
 		fmt.Fprintln(os.Stderr, "kl apply:", berr)
@@ -328,6 +337,7 @@ func runApply(args []string) int {
 		NoColor:                 *noColor,
 		WaitForReservations:     *waitTimeout,
 		ReservationWaitNotifier: newReservationWaitRenderer(os.Stderr, resolvedStateName),
+		UseStateEngineLock:      execMode.UseStateEngineCoarseLock,
 	}
 
 	res, runErr := apply.Run(ctx, st, opts, logger)
@@ -348,6 +358,114 @@ func specHasMutatingActions(spec *plan.PlanSpec) bool {
 	}
 	s := spec.PlanSummary
 	return s.Create > 0 || s.Update > 0 || s.Delete > 0 || s.Replace > 0 || s.Forget > 0
+}
+
+type applyExecutionMode struct {
+	UseNativeApply           bool
+	UseStateEngineProtocol   bool
+	UseStateEngineCoarseLock bool
+}
+
+type stateEngineApplySafety struct {
+	CanUseNative bool
+	Summary      string
+	Reason       string
+}
+
+func classifyStateEngineApplySafety(spec *plan.PlanSpec) stateEngineApplySafety {
+	if spec == nil || spec.StateEngine == nil {
+		return stateEngineApplySafety{
+			Summary: "not-applicable",
+			Reason:  "no state-engine scope contract recorded in the plan spec",
+		}
+	}
+	meta := spec.StateEngine
+	mode := strings.TrimSpace(meta.Mode)
+	switch mode {
+	case "":
+		return stateEngineApplySafety{
+			Summary: "not-applicable",
+			Reason:  "state-engine metadata exists but does not declare a native scope mode",
+		}
+	case "full-trunk-fallback":
+		reason := strings.TrimSpace(meta.FallbackReason)
+		if reason == "" {
+			reason = "scope fell back to full-trunk behavior"
+		}
+		return stateEngineApplySafety{
+			Summary: "fallback-required",
+			Reason:  reason,
+		}
+	case "native-slice", "native-slice-with-discovery-fallback":
+		// Continue below.
+	default:
+		return stateEngineApplySafety{
+			Summary: "unknown",
+			Reason:  fmt.Sprintf("unsupported state-engine mode %q", mode),
+		}
+	}
+	if len(meta.UnknownMissing) > 0 {
+		return stateEngineApplySafety{
+			Summary: "unsafe",
+			Reason:  fmt.Sprintf("backend could not classify %d missing node(s) from realized state", len(meta.UnknownMissing)),
+		}
+	}
+	if confidence := strings.TrimSpace(meta.Confidence); confidence != "" && !strings.EqualFold(confidence, "safe") {
+		return stateEngineApplySafety{
+			Summary: "unsafe",
+			Reason:  fmt.Sprintf("backend marked the scope confidence as %q", confidence),
+		}
+	}
+
+	reasons := make([]string, 0, 4)
+	if len(meta.ConfigRequiredNodes) > 0 {
+		reasons = append(reasons, fmt.Sprintf("%d config-only dependency node(s) preserved", len(meta.ConfigRequiredNodes)))
+	}
+	if len(meta.RemovedConfigNodes) > 0 {
+		reasons = append(reasons, fmt.Sprintf("%d removed-config delete node(s) tracked explicitly", len(meta.RemovedConfigNodes)))
+	}
+	if len(meta.UndeployedCandidates) > 0 {
+		reasons = append(reasons, fmt.Sprintf("%d undeployed candidate node(s) classified safely", len(meta.UndeployedCandidates)))
+	}
+	if mode == "native-slice-with-discovery-fallback" {
+		reasons = append(reasons, "config discovery fell back but the backend still proved a safe native slice")
+	}
+	if len(reasons) == 0 {
+		reasons = append(reasons, "backend proved a safe native slice for this scope")
+	}
+	return stateEngineApplySafety{
+		CanUseNative: true,
+		Summary:      "proven-safe",
+		Reason:       strings.Join(reasons, "; "),
+	}
+}
+
+func resolveApplyExecutionMode(protocol string, spec *plan.PlanSpec, orchestrated bool) applyExecutionMode {
+	safety := classifyStateEngineApplySafety(spec)
+	if orchestrated {
+		if protocol == cliProtocolStateEngine && safety.CanUseNative {
+			return applyExecutionMode{
+				UseNativeApply:           true,
+				UseStateEngineProtocol:   true,
+				UseStateEngineCoarseLock: true,
+			}
+		}
+		return applyExecutionMode{
+			UseNativeApply: true,
+		}
+	}
+	if protocol != cliProtocolStateEngine || !safety.CanUseNative {
+		return applyExecutionMode{}
+	}
+	return applyExecutionMode{
+		UseNativeApply:           true,
+		UseStateEngineProtocol:   true,
+		UseStateEngineCoarseLock: true,
+	}
+}
+
+func shouldUseNativeStateEngineApply(protocol string, spec *plan.PlanSpec, orchestrated bool) bool {
+	return resolveApplyExecutionMode(protocol, spec, orchestrated).UseNativeApply
 }
 
 func runBackendScopedApply(ctx context.Context, spec *plan.PlanSpec, specPath, workDirFlag, terraformBin, iacVersion string, noColor bool) error {
@@ -401,23 +519,66 @@ func buildScopedSpecForApply(ctx context.Context, workDirFlag, specPath string, 
 	if err != nil {
 		return nil, fmt.Errorf("--file requires terraform-init'ed http backend in %s: %w", absConfigDir, err)
 	}
-	raw, err := plan.FetchCurrentStateFromBackend(ctx, backend)
-	if err != nil {
-		return nil, fmt.Errorf("read trunk state from backend: %w", err)
-	}
 	scope, err := plan.NormalizeFileScope(absConfigDir, fileArgs)
 	if err != nil {
 		return nil, err
 	}
 	icfg := config.Load()
+	protocol := resolvedCLIProtocol(icfg)
+	if protocol != cliProtocolTerraformHTTP && protocol != cliProtocolStateEngine {
+		return nil, fmt.Errorf("unsupported protocol %q (expected %q or %q)", protocol, cliProtocolTerraformHTTP, cliProtocolStateEngine)
+	}
+	var (
+		raw                 []byte
+		srcSerial           *int64
+		configRequiredNodes []string
+		stateEngineMeta     *plan.StateEnginePlanMetadata
+	)
+	if protocol == cliProtocolStateEngine {
+		if scoped, serr := fetchScopedStateViaStateEngineForFiles(ctx, absConfigDir, absConfigDir, scope); serr == nil {
+			raw = scoped.Raw
+			srcSerial = scoped.Serial
+			configRequiredNodes = scoped.ConfigRequiredNodes
+			stateEngineMeta = stateEnginePlanMetaFromScopedResult(scoped, 0)
+			fmt.Fprintln(os.Stderr, "kl apply: fetched scoped state slice via state-engine")
+			fmt.Fprintf(os.Stderr, "kl apply: state-engine timings: resolve=%dms expand=%dms fetch=%dms resources=%d slice=%dB\n",
+				stateEngineMeta.ResolveDurationMs,
+				stateEngineMeta.ExpandDurationMs,
+				stateEngineMeta.SliceFetchDurationMs,
+				stateEngineMeta.SliceResourceCount,
+				stateEngineMeta.SliceBytes,
+			)
+			for _, note := range stateEngineMeta.Notes {
+				fmt.Fprintf(os.Stderr, "kl apply: state-engine note: %s\n", note)
+			}
+		} else {
+			if fallback, why := shouldFallbackStateEngineScoped(serr); fallback {
+				fmt.Fprintf(os.Stderr, "kl apply: warning: %s: %v\n", why, serr)
+				stateEngineMeta = stateEngineFallbackPlanMeta(why)
+			} else {
+				return nil, fmt.Errorf("state-engine scope rejected: %w", serr)
+			}
+		}
+	}
+	if len(raw) == 0 {
+		raw, err = plan.FetchCurrentStateFromBackend(ctx, backend)
+		if err != nil {
+			return nil, fmt.Errorf("read trunk state from backend: %w", err)
+		}
+		if ts, perr := slice.ParseTrunkState(raw); perr == nil && ts.Serial > 0 {
+			v := ts.Serial
+			srcSerial = &v
+		}
+	}
 	resolvedBin, err := resolveIACBinary(terraformBin, iacVersion, icfg.IACBinary, icfg.IACVersion)
 	if err != nil {
 		return nil, err
 	}
 	fmt.Fprintln(os.Stderr, "kl apply: building scoped plan…")
 	showJSON, err := plan.RunScopedTerraformPlan(ctx, resolvedBin, absConfigDir, raw, scope, plan.ScopedPlanOptions{
-		Refresh: !noRefresh,
-		Vars:    map[string]json.RawMessage{},
+		Refresh:             !noRefresh,
+		Vars:                map[string]json.RawMessage{},
+		ConfigRequiredNodes: configRequiredNodes,
 	})
 	if err != nil {
 		return nil, err
@@ -428,15 +589,17 @@ func buildScopedSpecForApply(ctx context.Context, workDirFlag, specPath string, 
 	}
 	_ = plan.UpdateOwnershipCache(absConfigDir, parsed)
 	spec := plan.BuildSpec(parsed, plan.SpecBuildInput{
-		ConfigDir:   absConfigDir,
-		GeneratedAt: time.Now().UTC(),
-		StateName:   backend.StateName,
-		PinAllVars:  true,
+		ConfigDir:    absConfigDir,
+		GeneratedAt:  time.Now().UTC(),
+		StateName:    backend.StateName,
+		SourceSerial: srcSerial,
+		PinAllVars:   true,
 	})
-	spec, err = plan.ApplyFileScope(parsed, spec, scope)
+	spec, err = plan.ApplyFileScope(parsed, spec, scope, stateEngineMeta)
 	if err != nil {
 		return nil, err
 	}
+	spec.StateEngine = stateEngineMeta
 	if len(spec.WriteSet) == 0 {
 		return nil, formatFileScopeEmptyWriteSet(parsed, spec, scope)
 	}
@@ -464,11 +627,51 @@ func buildTargetedSpecForApply(ctx context.Context, workDirFlag, specPath string
 	if err != nil {
 		return nil, fmt.Errorf("--target requires terraform-init'ed http backend in %s: %w", absConfigDir, err)
 	}
-	raw, err := plan.FetchCurrentStateFromBackend(ctx, backend)
-	if err != nil {
-		return nil, fmt.Errorf("read trunk state from backend: %w", err)
-	}
 	icfg := config.Load()
+	protocol := resolvedCLIProtocol(icfg)
+	if protocol != cliProtocolTerraformHTTP && protocol != cliProtocolStateEngine {
+		return nil, fmt.Errorf("unsupported protocol %q (expected %q or %q)", protocol, cliProtocolTerraformHTTP, cliProtocolStateEngine)
+	}
+	var (
+		raw             []byte
+		srcSerial       *int64
+		stateEngineMeta *plan.StateEnginePlanMetadata
+	)
+	if protocol == cliProtocolStateEngine {
+		if scoped, serr := fetchScopedStateViaStateEngineForTargets(ctx, absConfigDir, absConfigDir, targets); serr == nil {
+			raw = scoped.Raw
+			srcSerial = scoped.Serial
+			stateEngineMeta = stateEnginePlanMetaFromScopedResult(scoped, 0)
+			fmt.Fprintln(os.Stderr, "kl apply: fetched targeted state slice via state-engine")
+			fmt.Fprintf(os.Stderr, "kl apply: state-engine timings: resolve=%dms expand=%dms fetch=%dms resources=%d slice=%dB\n",
+				stateEngineMeta.ResolveDurationMs,
+				stateEngineMeta.ExpandDurationMs,
+				stateEngineMeta.SliceFetchDurationMs,
+				stateEngineMeta.SliceResourceCount,
+				stateEngineMeta.SliceBytes,
+			)
+			for _, note := range stateEngineMeta.Notes {
+				fmt.Fprintf(os.Stderr, "kl apply: state-engine note: %s\n", note)
+			}
+		} else {
+			if fallback, why := shouldFallbackStateEngineScoped(serr); fallback {
+				fmt.Fprintf(os.Stderr, "kl apply: warning: %s: %v\n", why, serr)
+				stateEngineMeta = stateEngineFallbackPlanMeta(why)
+			} else {
+				return nil, fmt.Errorf("state-engine scope rejected: %w", serr)
+			}
+		}
+	}
+	if len(raw) == 0 {
+		raw, err = plan.FetchCurrentStateFromBackend(ctx, backend)
+		if err != nil {
+			return nil, fmt.Errorf("read trunk state from backend: %w", err)
+		}
+		if ts, perr := slice.ParseTrunkState(raw); perr == nil && ts.Serial > 0 {
+			v := ts.Serial
+			srcSerial = &v
+		}
+	}
 	resolvedBin, err := resolveIACBinary(terraformBin, iacVersion, icfg.IACBinary, icfg.IACVersion)
 	if err != nil {
 		return nil, err
@@ -487,10 +690,11 @@ func buildTargetedSpecForApply(ctx context.Context, workDirFlag, specPath string
 	}
 	_ = plan.UpdateOwnershipCache(absConfigDir, parsed)
 	spec := plan.BuildSpec(parsed, plan.SpecBuildInput{
-		ConfigDir:   absConfigDir,
-		GeneratedAt: time.Now().UTC(),
-		StateName:   backend.StateName,
-		PinAllVars:  true,
+		ConfigDir:    absConfigDir,
+		GeneratedAt:  time.Now().UTC(),
+		StateName:    backend.StateName,
+		SourceSerial: srcSerial,
+		PinAllVars:   true,
 	})
 	allowed, aerr := plan.ExpandTargetSliceAddresses(absConfigDir, targets)
 	if aerr != nil {
@@ -502,12 +706,52 @@ func buildTargetedSpecForApply(ctx context.Context, workDirFlag, specPath string
 	if len(spec.WriteSet) == 0 {
 		return nil, fmt.Errorf("target selection produced an empty write_set; selected targets did not own any planned writes")
 	}
+	spec.StateEngine = stateEngineMeta
 	if specPath != "" {
 		if b, merr := plan.MarshalSpec(spec); merr == nil {
 			_ = os.WriteFile(specPath, b, 0o644)
 		}
 	}
 	return spec, nil
+}
+
+func stateEnginePlanMetaFromScopedResult(scoped *stateEngineScopedSliceResult, fullStateBytes int) *plan.StateEnginePlanMetadata {
+	if scoped == nil {
+		return nil
+	}
+	return &plan.StateEnginePlanMetadata{
+		Mode:                   stateEnginePlanModeForScopedResult(scoped),
+		DiscoveryEngine:        strings.TrimSpace(scoped.DiscoveryEngine),
+		FetchAddresses:         append([]string{}, scoped.FetchAddresses...),
+		WriteAddresses:         append([]string{}, scoped.WriteAddresses...),
+		ConfigRequiredNodes:    append([]string{}, scoped.ConfigRequiredNodes...),
+		RemovedConfigNodes:     append([]string{}, scoped.RemovedConfigNodes...),
+		MissingFromState:       append([]string{}, scoped.MissingFromState...),
+		UndeployedCandidates:   append([]string{}, scoped.UndeployedCandidates...),
+		UnknownMissing:         append([]string{}, scoped.UnknownMissing...),
+		Confidence:             scoped.Confidence,
+		Notes:                  append([]string{}, scoped.Notes...),
+		ResolveDurationMs:      scoped.ResolveDurationMs,
+		ExpandDurationMs:       scoped.ExpandDurationMs,
+		SliceFetchDurationMs:   scoped.SliceFetchDurationMs,
+		SliceResourceCount:     scoped.SliceResourceCount,
+		GraphCacheHit:          scoped.GraphCacheHit,
+		RealizedResourceCount:  scoped.RealizedResourceCount,
+		DependencyEdgeCount:    scoped.DependencyEdgeCount,
+		InventoryScanCount:     scoped.InventoryScanCount,
+		WalkedNodeCount:        scoped.WalkedNodeCount,
+		ConfigNodeCount:        scoped.ConfigNodeCount,
+		ModuleSelectorCount:    scoped.ModuleSelectorCount,
+		FetchAddressCount:      scoped.FetchAddressCount,
+		WriteAddressCount:      scoped.WriteAddressCount,
+		ReadAddressCount:       scoped.ReadAddressCount,
+		ServerExpandMs:         scoped.ServerExpandMs,
+		SliceRequestedCount:    scoped.SliceRequestedCount,
+		SliceMaterializedCount: scoped.SliceMaterializedCount,
+		ServerSliceMs:          scoped.ServerSliceMs,
+		SliceBytes:             len(scoped.Raw),
+		FullStateBytes:         fullStateBytes,
+	}
 }
 
 func buildFullSpecForApply(ctx context.Context, workDirFlag, terraformBin, iacVersion string) (*plan.PlanSpec, error) {
@@ -714,6 +958,59 @@ func renderApplyPreflight(w io.Writer, spec *plan.PlanSpec, mode string, selecto
 	fmt.Fprintf(tw, "  write set:\t%d\n", len(spec.WriteSet))
 	fmt.Fprintf(tw, "  read set:\t%d\n", len(spec.ReadSet))
 	fmt.Fprintf(tw, "  reservations:\t%d\n", len(spec.Reservations))
+	if spec.StateEngine != nil {
+		if spec.StateEngine.Mode != "" {
+			fmt.Fprintf(tw, "  state-engine mode:\t%s\n", spec.StateEngine.Mode)
+		}
+		safety := classifyStateEngineApplySafety(spec)
+		if safety.Summary != "" {
+			fmt.Fprintf(tw, "  native apply safety:\t%s\n", safety.Summary)
+		}
+		if safety.Reason != "" {
+			fmt.Fprintf(tw, "  safety reason:\t%s\n", safety.Reason)
+		}
+		if spec.StateEngine.DiscoveryEngine != "" {
+			fmt.Fprintf(tw, "  discovery engine:\t%s\n", spec.StateEngine.DiscoveryEngine)
+		}
+		if spec.StateEngine.FallbackReason != "" {
+			fmt.Fprintf(tw, "  fallback reason:\t%s\n", spec.StateEngine.FallbackReason)
+		}
+		if spec.StateEngine.ResolveDurationMs > 0 || spec.StateEngine.ExpandDurationMs > 0 || spec.StateEngine.SliceFetchDurationMs > 0 {
+			fmt.Fprintf(tw, "  state-engine timings:\tresolve=%dms expand=%dms fetch=%dms\n",
+				spec.StateEngine.ResolveDurationMs,
+				spec.StateEngine.ExpandDurationMs,
+				spec.StateEngine.SliceFetchDurationMs,
+			)
+		}
+		if spec.StateEngine.RealizedResourceCount > 0 || spec.StateEngine.DependencyEdgeCount > 0 || spec.StateEngine.InventoryScanCount > 0 || spec.StateEngine.GraphCacheHit || spec.StateEngine.WalkedNodeCount > 0 || spec.StateEngine.ConfigNodeCount > 0 || spec.StateEngine.ModuleSelectorCount > 0 {
+			fmt.Fprintf(tw, "  scope diagnostics:\tcache_hit=%t realized=%d edges=%d scanned=%d walked=%d config=%d modules=%d\n",
+				spec.StateEngine.GraphCacheHit,
+				spec.StateEngine.RealizedResourceCount,
+				spec.StateEngine.DependencyEdgeCount,
+				spec.StateEngine.InventoryScanCount,
+				spec.StateEngine.WalkedNodeCount,
+				spec.StateEngine.ConfigNodeCount,
+				spec.StateEngine.ModuleSelectorCount,
+			)
+		}
+		if spec.StateEngine.FetchAddressCount > 0 || spec.StateEngine.WriteAddressCount > 0 || spec.StateEngine.ReadAddressCount > 0 {
+			fmt.Fprintf(tw, "  scope addresses:\tfetch=%d write=%d read=%d\n",
+				spec.StateEngine.FetchAddressCount,
+				spec.StateEngine.WriteAddressCount,
+				spec.StateEngine.ReadAddressCount,
+			)
+		}
+		if spec.StateEngine.SliceResourceCount > 0 {
+			fmt.Fprintf(tw, "  slice resources:\t%d\n", spec.StateEngine.SliceResourceCount)
+		}
+		if spec.StateEngine.SliceRequestedCount > 0 || spec.StateEngine.SliceMaterializedCount > 0 || spec.StateEngine.ServerSliceMs > 0 {
+			fmt.Fprintf(tw, "  slice diagnostics:\trequested=%d materialized=%d server_fetch=%dms\n",
+				spec.StateEngine.SliceRequestedCount,
+				spec.StateEngine.SliceMaterializedCount,
+				spec.StateEngine.ServerSliceMs,
+			)
+		}
+	}
 	if len(spec.WriteSet) > 0 {
 		fmt.Fprintf(tw, "  write preview:\t%s\n", strings.Join(previewSlice(spec.WriteSet, scopePreviewLimit), ", "))
 	}
@@ -1027,6 +1324,9 @@ func renderApplyResult(w io.Writer, res *apply.Result, runErr error) {
 	if runErr == nil {
 		fmt.Fprintf(tw, "  committed serial:\t%d\n", res.CommittedSerial)
 		fmt.Fprintf(tw, "  new version:\t%s\n", res.NewVersionID)
+		if strings.TrimSpace(res.CommitMode) != "" {
+			fmt.Fprintf(tw, "  commit mode:\t%s\n", res.CommitMode)
+		}
 	}
 	fmt.Fprintf(tw, "  resources planned:\t%d\n", res.ResourcesPlanned)
 	fmt.Fprintf(tw, "  resources applied:\t%d\n", res.ResourcesApplied)
@@ -1052,6 +1352,41 @@ func renderApplyResult(w io.Writer, res *apply.Result, runErr error) {
 		}
 	}
 
+	if runErr == nil && strings.EqualFold(strings.TrimSpace(res.CommitMode), "state-engine delta") {
+		fmt.Fprintln(w)
+		if strings.TrimSpace(res.NativeIntentSource) != "" {
+			fmt.Fprintf(w, "Native intent source: %s\n", res.NativeIntentSource)
+		}
+		fmt.Fprintf(w, "Native intent writes: %d\n", len(res.NativeIntentWriteSet))
+		fmt.Fprintf(w, "Native intent deletes: %d\n", len(res.NativeIntentDeleteSet))
+		if len(res.NativeIntentWriteSet) > 0 {
+			const max = 25
+			fmt.Fprintln(w)
+			fmt.Fprintln(w, "Native intent write set:")
+			for i, a := range res.NativeIntentWriteSet {
+				if i >= max {
+					fmt.Fprintf(w, "  ... and %d more\n", len(res.NativeIntentWriteSet)-max)
+					break
+				}
+				fmt.Fprintf(w, "  %s\n", a)
+			}
+		}
+		if len(res.NativeIntentDeleteSet) > 0 {
+			const max = 25
+			fmt.Fprintln(w)
+			fmt.Fprintln(w, "Native intent delete set:")
+			for i, a := range res.NativeIntentDeleteSet {
+				if i >= max {
+					fmt.Fprintf(w, "  ... and %d more\n", len(res.NativeIntentDeleteSet)-max)
+					break
+				}
+				fmt.Fprintf(w, "  %s\n", a)
+			}
+		}
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, "State-engine delta commit updated only the selected resource rows while still writing a full canonical state snapshot.")
+	}
+
 	if runErr != nil {
 		fmt.Fprintln(w)
 		fmt.Fprintln(w, "Error:", formatApplyRunError(runErr))
@@ -1062,11 +1397,29 @@ func formatApplyRunError(err error) string {
 	if err == nil {
 		return ""
 	}
+	var trustedIntentErr *apply.TrustedStateEngineIntentError
+	if errors.As(err, &trustedIntentErr) {
+		return formatTrustedStateEngineIntentError(trustedIntentErr)
+	}
 	var conflict *store.ReservationConflictError
 	if !errors.As(err, &conflict) {
 		return err.Error()
 	}
 	return formatReservationConflictError(conflict)
+}
+
+func formatTrustedStateEngineIntentError(err *apply.TrustedStateEngineIntentError) string {
+	if err == nil {
+		return "trusted native apply validation failed"
+	}
+	switch {
+	case strings.TrimSpace(err.DeleteOutsideWrite) != "":
+		return fmt.Sprintf("trusted native apply validation failed: Terraform wanted to delete %q outside the proven scoped write set. Re-run `kl plan`, widen the scope, or add explicit removed/moved metadata so the backend can prove the slice safely.", err.DeleteOutsideWrite)
+	case len(err.MissingWrites) > 0 || len(err.ExtraWrites) > 0:
+		return fmt.Sprintf("trusted native apply validation failed: Terraform's exact write set no longer matched the proven scoped plan (missing=%v extra=%v). Re-run `kl plan`, widen the scope, or switch this run to the broader fallback lane.", err.MissingWrites, err.ExtraWrites)
+	default:
+		return "trusted native apply validation failed: Terraform's exact intent no longer matched the proven scoped plan"
+	}
 }
 
 func formatReservationConflictError(conflict *store.ReservationConflictError) string {

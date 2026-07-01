@@ -211,6 +211,12 @@ backend alone. Plain Terraform can still create infrastructure and only learn
 about quota rejection when the final state write is refused; Kilolock CLI
 preflight exists to catch that earlier.
 
+When `KL_PROTOCOL=state-engine` is enabled and the backend proves a safe native
+slice, ordinary operator-facing flows such as `kl plan -f slow_a.tf` followed by
+`kl apply -f slow_a.tf` stay on the trusted state-engine lane and commit as a
+narrow `state-engine delta`, while still advancing the canonical full-state
+serial normally.
+
 To point at a different `kld` instance, override at init time:
 
 ```sh
@@ -224,11 +230,13 @@ terraform init -reconfigure \
 
 ## Big-state demos
 
-This directory intentionally carries exactly three supported public demos:
+This directory intentionally carries five supported public demos:
 
 - `./wait-demo.sh` for same-resource contention and visible waiting
 - `./parallel-demo.sh` for different-resource parallelism on one shared state
 - `./drift-demo.sh` for refresh-style drift detection on the same large-state fixture
+- `./state-engine-demo.sh` for state-engine mixed-graph scoping, removed-config classification, plus native `kl state mv` / `kl state rm`
+- `./state-engine-benchmark.sh` for repeatable ADR29 lane comparisons: plain Terraform target, KL full-trunk scoped plan, and KL state-engine native-slice cold/warm timing on the same fixture
 
 Everything else in this directory exists only to support those demos or the Terraform fixture itself.
 
@@ -239,7 +247,82 @@ resources that make the collaboration story tangible. Each one sleeps for
 - `slow_a_version` only replaces `time_sleep.slow_a`
 - `slow_b_version` only replaces `time_sleep.slow_b`
 
-That gives us two collaboration demos plus one drift demo. The collaboration scripts use narrow file-scoped plans under the hood so the demo spends its time showing reservation behavior, not replanning the entire state.
+### State-engine demo
+
+This is the experimental V3 lane. It is the best place to see what Kilolock
+can do beyond plain Terraform/OpenTofu HTTP-backend semantics, but it should be
+read as an advanced demo rather than the default day-one workflow.
+
+Once the fixture exists and `terraform init` has been run here:
+
+```sh
+./state-engine-demo.sh
+```
+
+What it demonstrates:
+
+- backend-assisted `kl plan -f ...` when the selected file depends on an undeployed support node in a different file
+- preservation of required config-only support blocks in the scoped workspace
+- trusted native `kl apply --file ...` where the selected file safely widens to a realized support mutation plus an undeployed helper node
+- module-aware native scoping where a selected local module file widens to realized `module.*` resource writes and still commits via the delta lane
+- realized dependency fetch through the state-engine protocol
+- comparison of full backend state size versus the fetched slice payload
+- preview-time classification of `removed { from = ... }` addresses that are intentionally no longer in config
+- backend metadata showing `removed_config_nodes` and safe handling when those addresses are already absent
+- native `kl state mv` preview/apply under `KL_PROTOCOL=state-engine`
+- move-back restore so the fixture stays canonical
+- native `kl state rm` preview/apply
+- restore of the removed address via `kl rollback resource`
+
+What it does **not** prove yet:
+
+- a backend-executed apply engine
+- delta-only apply commits for generic `kl apply`
+- complete replacement of Terraform/OpenTofu planning logic
+
+Today the reference implementation still runs Terraform locally for planning and
+apply execution, then uses the state-engine protocol for scope expansion,
+reservation, coarse Terraform-visible locking, and commit.
+
+Useful modes:
+
+```sh
+./state-engine-demo.sh scope
+./state-engine-demo.sh native
+./state-engine-demo.sh all
+```
+
+### State-engine benchmark
+
+When you want numbers instead of a narrative demo, use:
+
+```sh
+./state-engine-benchmark.sh plans
+```
+
+This now compares the same narrow change across three planning lanes:
+
+- plain `terraform plan -target=...` over the full trunk state
+- `kl plan -f ...` with `KL_PROTOCOL=terraform-http` (current scoped/full-trunk lane)
+- `kl plan -f ...` with `KL_PROTOCOL=state-engine` (native-slice lane, cold then warm)
+
+It prints:
+
+- end-to-end wall clock
+- full-trunk versus native-slice payload context
+- client timings for resolve / expand / fetch
+- server timings for expand / slice materialization
+- graph diagnostics such as realized rows, walked nodes, and scans
+- slice payload counts
+
+Optional modes:
+
+```sh
+./state-engine-benchmark.sh apply
+./state-engine-benchmark.sh all
+```
+
+The collaboration scripts use narrow file-scoped plans under the hood so the demo spends its time showing reservation behavior, not replanning the entire state.
 
 If you are deciding which demo to run, use this quick guide:
 

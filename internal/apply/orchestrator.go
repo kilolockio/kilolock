@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/kilolockio/kilolock/internal/plan"
@@ -86,16 +87,62 @@ func Run(ctx context.Context, st StoreAPI, opts Options, logger *slog.Logger) (*
 		StartedAt:        startedAt,
 	}
 
+	coarseLockHeld := false
+	if opts.UseStateEngineLock {
+		if err := acquireStateEngineCoarseLock(ctx, st, opts, applyRun.ID, logger); err != nil {
+			res.FinishedAt = time.Now()
+			finalizeApplyRun(ctx, st, applyRun.ID, res, err, logger)
+			return res, err
+		}
+		coarseLockHeld = true
+	}
+
 	commitErr := runInner(ctx, st, opts, trunkInfo, applyRun, lease, logger, res)
 	res.FinishedAt = time.Now()
 
 	finalizeApplyRun(ctx, st, applyRun.ID, res, commitErr, logger)
 	releaseReservations(ctx, st, applyRun.ID, logger)
+	if coarseLockHeld {
+		releaseStateEngineCoarseLock(ctx, st, opts.StateName, applyRun.ID, opts.Actor, logger)
+	}
 
 	if commitErr != nil {
 		return res, commitErr
 	}
 	return res, nil
+}
+
+func acquireStateEngineCoarseLock(ctx context.Context, st StoreAPI, opts Options, applyID string, logger *slog.Logger) error {
+	scopeSummary := append([]string(nil), opts.Spec.WriteSet...)
+	current, err := st.AcquireStateEngineLock(ctx, opts.StateName, applyID, opts.Actor, scopeSummary)
+	if err == nil {
+		logger.Info("state-engine coarse lock acquired",
+			"apply_id", applyID,
+			"state", opts.StateName,
+			"scope_count", len(scopeSummary),
+		)
+		return nil
+	}
+	if errors.Is(err, store.ErrAlreadyLocked) {
+		return fmt.Errorf("acquire state-engine coarse lock: state %q is already locked by who=%q lock_id=%q path=%q",
+			opts.StateName, current.Who, current.ID, current.Path)
+	}
+	return fmt.Errorf("acquire state-engine coarse lock: %w", err)
+}
+
+func releaseStateEngineCoarseLock(
+	ctx context.Context,
+	st StoreAPI,
+	stateName, applyID, actor string,
+	logger *slog.Logger,
+) {
+	fctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := st.ReleaseStateEngineLock(fctx, stateName, applyID, actor); err != nil {
+		logger.Warn("release state-engine coarse lock failed", "apply_id", applyID, "state", stateName, "err", err)
+		return
+	}
+	logger.Info("state-engine coarse lock released", "apply_id", applyID, "state", stateName)
 }
 
 // runInner executes the post-Begin phase of the apply. Pulled out
@@ -174,7 +221,7 @@ func runInner(
 	if err != nil {
 		return fmt.Errorf("parse trunk state: %w", err)
 	}
-	footprint := slice.IndexFootprintByGroup(opts.Spec.HCLFootprint)
+	footprint := effectiveSliceFootprint(opts.Spec)
 	sliceState, err := slice.Build(trunkState, footprint)
 	if err != nil {
 		return fmt.Errorf("build slice: %w", err)
@@ -196,7 +243,8 @@ func runInner(
 	//    this drops apply latency from ~50s to ~1-2s for a single-
 	//    resource update.
 	tfLog := &bytes.Buffer{}
-	if err := runTerraform(applyCtx, setup.Dir, opts.TerraformBin, opts.NoColor, opts.Spec.WriteSet, opts.Spec.Variables, setup.PluginCacheDir, tfLog); err != nil {
+	tfIntent, err := runTerraform(applyCtx, setup.Dir, opts.TerraformBin, opts.NoColor, opts.Spec.WriteSet, opts.Spec.Variables, setup.PluginCacheDir, tfLog)
+	if err != nil {
 		select {
 		case hb := <-hbErr:
 			if hb != nil {
@@ -272,7 +320,15 @@ func runInner(
 	//       and retries are cheap.
 	const maxCommitRetries = 8
 	var merged *mergeResult
+	var nativeAppliedAddresses []string
+	var nativeDeletedAddresses []string
+	var nativeIntentSource string
+	var committedSerial int64
 	var commitErr error
+	commitKind := "merged state"
+	if opts.UseStateEngineLock {
+		commitKind = "state-engine delta"
+	}
 	for attempt := 0; attempt < maxCommitRetries; attempt++ {
 		freshTrunkInfo, err := st.EnsureCurrentStateInfo(ctx, opts.StateName)
 		if err != nil {
@@ -283,45 +339,77 @@ func runInner(
 			return fmt.Errorf("parse fresh trunk (attempt %d): %w", attempt+1, err)
 		}
 
-		merged, err = buildMergedState(
-			freshTrunkState, postApplyState,
-			opts.Spec.WriteSet, footprint,
-		)
-		if err != nil {
-			return fmt.Errorf("merge (attempt %d): %w", attempt+1, err)
+		if opts.UseStateEngineLock {
+			if err := validateTrustedStateEngineIntent(opts.Spec, tfIntent); err != nil {
+				return fmt.Errorf("trusted state-engine intent validation failed (attempt %d): %w", attempt+1, err)
+			}
+			nativeAppliedAddresses = append([]string(nil), tfIntent.ExactWriteSet...)
+			nativeDeletedAddresses = append([]string(nil), tfIntent.DeleteSet...)
+			nativeIntentSource = "terraform validation replan"
+			delta, err := buildStateEngineDeltaCommit(postApplyState, nativeAppliedAddresses, nativeDeletedAddresses)
+			if err != nil {
+				return fmt.Errorf("build state-engine delta commit (attempt %d): %w", attempt+1, err)
+			}
+			if err := attachOutputDelta(&delta, freshTrunkState, postApplyState); err != nil {
+				return fmt.Errorf("attach state-engine output delta (attempt %d): %w", attempt+1, err)
+			}
+			committedSerial = freshTrunkInfo.Serial + 1
+			res.CommitMode = "state-engine delta"
+			logger.Info("state-engine delta intent prepared",
+				"apply_id", applyRun.ID,
+				"intent_source", nativeIntentSource,
+				"intent_write_count", len(nativeAppliedAddresses),
+				"intent_delete_count", len(nativeDeletedAddresses),
+				"intent_writes", nativeAppliedAddresses,
+				"intent_deletes", nativeDeletedAddresses,
+				"delta_resources", len(delta.Resources),
+			)
+			commitErr = st.WriteStateEngineDeltaForApply(ctx,
+				opts.StateName, applyRun.ID, freshTrunkInfo.Serial, delta,
+				"state-engine-apply", opts.Actor,
+			)
+		} else {
+			merged, err = buildMergedState(
+				freshTrunkState, postApplyState,
+				opts.Spec.WriteSet, footprint,
+			)
+			if err != nil {
+				return fmt.Errorf("merge (attempt %d): %w", attempt+1, err)
+			}
+			committedSerial = merged.NewSerial
+			res.CommitMode = "snapshot merge"
+			commitErr = st.WriteStateForApply(ctx,
+				opts.StateName, applyRun.ID, freshTrunkInfo.Serial, merged.MergedBytes,
+				"apply", opts.Actor,
+			)
 		}
-
-		commitErr = st.WriteStateForApply(ctx,
-			opts.StateName, merged.MergedBytes,
-			"apply", opts.Actor,
-		)
 		if commitErr == nil {
 			if attempt > 0 {
 				logger.Info("commit succeeded after retries",
 					"apply_id", applyRun.ID,
 					"attempts", attempt+1,
-					"final_serial", merged.NewSerial,
+					"final_serial", committedSerial,
 				)
 			}
 			break
 		}
 		if !errors.Is(commitErr, store.ErrSerialConflict) {
-			return fmt.Errorf("write merged state: %w", commitErr)
+			return fmt.Errorf("write %s: %w", commitKind, commitErr)
 		}
 
-		logger.Info("commit lost serial race; re-merging on top of newer trunk",
+		logger.Info("commit lost serial race; retrying on top of newer trunk",
 			"apply_id", applyRun.ID,
 			"attempt", attempt+1,
-			"tried_serial", merged.NewSerial,
+			"tried_serial", committedSerial,
 		)
 	}
 	if commitErr != nil {
-		return fmt.Errorf("write merged state: exhausted %d retries against parallel commits; last error: %w",
-			maxCommitRetries, commitErr)
+		return fmt.Errorf("write %s: exhausted %d retries against parallel commits; last error: %w",
+			commitKind, maxCommitRetries, commitErr)
 	}
 
 	// 12. Recover the new state_version id for the audit row.
-	newVersionID, err := st.LookupStateVersionID(ctx, trunkInfo.StateID, merged.NewSerial)
+	newVersionID, err := st.LookupStateVersionID(ctx, trunkInfo.StateID, committedSerial)
 	if err != nil {
 		// The write succeeded but we can't find the row.
 		// Surface as an error so the audit reflects "commit
@@ -330,16 +418,53 @@ func runInner(
 		return fmt.Errorf("lookup new state_version id: %w", err)
 	}
 
-	res.CommittedSerial = merged.NewSerial
+	res.CommittedSerial = committedSerial
 	res.NewVersionID = newVersionID
-	res.ResourcesApplied = len(merged.AppliedAddresses)
-	res.AppliedAddresses = merged.AppliedAddresses
+	if opts.UseStateEngineLock {
+		res.ResourcesApplied = len(nativeAppliedAddresses)
+		res.AppliedAddresses = nativeAppliedAddresses
+		res.NativeIntentSource = nativeIntentSource
+		res.NativeIntentWriteSet = append([]string(nil), nativeAppliedAddresses...)
+		res.NativeIntentDeleteSet = append([]string(nil), nativeDeletedAddresses...)
+	} else {
+		res.ResourcesApplied = len(merged.AppliedAddresses)
+		res.AppliedAddresses = merged.AppliedAddresses
+	}
 	logger.Info("apply committed",
 		"apply_id", applyRun.ID,
-		"new_serial", merged.NewSerial,
+		"new_serial", committedSerial,
 		"applied", res.ResourcesApplied,
 	)
 	return nil
+}
+
+func effectiveSliceFootprint(spec *plan.PlanSpec) map[string]struct{} {
+	if spec == nil {
+		return map[string]struct{}{}
+	}
+	footprint := slice.IndexFootprintByGroup(spec.HCLFootprint)
+	if spec.StateEngine == nil {
+		return footprint
+	}
+	for _, addr := range spec.StateEngine.FetchAddresses {
+		addr = strings.TrimSpace(addr)
+		if addr != "" {
+			footprint[addr] = struct{}{}
+		}
+	}
+	for _, addr := range spec.StateEngine.ConfigRequiredNodes {
+		addr = strings.TrimSpace(addr)
+		if addr != "" {
+			footprint[addr] = struct{}{}
+		}
+	}
+	for _, addr := range spec.StateEngine.RemovedConfigNodes {
+		addr = strings.TrimSpace(addr)
+		if addr != "" {
+			footprint[addr] = struct{}{}
+		}
+	}
+	return footprint
 }
 
 func renewReservationLeases(ctx context.Context, st StoreAPI, applyID string, lease time.Duration, expected int, logger *slog.Logger) error {

@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/kilolockio/kilolock/pkg/config"
 	"github.com/kilolockio/kilolock/pkg/store"
 )
 
@@ -51,6 +52,9 @@ func runRollbackResource(args []string) int {
 	stateName := stateTarget.StateName
 	ctx, cancel := context.WithTimeout(cliContext(), *timeout)
 	defer cancel()
+	if resolvedCLIProtocol(config.Load()) == cliProtocolStateEngine {
+		return runStateEngineRollbackResource(ctx, client, stateName, strings.TrimSpace(*address), strings.TrimSpace(*to), *apply, *yes, *strict, *format)
+	}
 	var preview store.ResourceRollbackPreview
 	if err := client.postJSON(ctx, "/admin/state/resource-rollback/preview?name="+queryEscape(stateName), stateName, map[string]any{
 		"address": *address,
@@ -108,6 +112,66 @@ func runRollbackResource(args []string) int {
 		return 1
 	}
 	if *format == "json" {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		enc.SetEscapeHTML(false)
+		if err := enc.Encode(resp); err != nil {
+			fmt.Fprintln(os.Stderr, "kl rollback resource:", err)
+			return 1
+		}
+		return 0
+	}
+	fmt.Fprintf(os.Stdout, "\nResource rollback applied.\n  new serial: %d\n  new version id: %s\n", resp.Version.Serial, resp.Version.ID)
+	return 0
+}
+
+func runStateEngineRollbackResource(ctx context.Context, client *apiClient, stateName, address, ref string, apply, yes, strict bool, format string) int {
+	engine := newStateEngineClient(client)
+	preview, err := engine.previewRollback(ctx, stateName, address, ref)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "kl rollback resource:", err)
+		return 1
+	}
+	switch format {
+	case "json":
+		if err := renderResourceRollbackPreviewJSON(os.Stdout, preview); err != nil {
+			fmt.Fprintln(os.Stderr, "kl rollback resource:", err)
+			return 1
+		}
+	case "table", "":
+		renderResourceRollbackPreview(os.Stdout, preview)
+	default:
+		fmt.Fprintln(os.Stderr, "kl rollback resource: --format must be table or json")
+		return 2
+	}
+	if !apply || preview.Action == "no-op" {
+		if format != "json" {
+			if preview.Action == "no-op" {
+				fmt.Fprintln(os.Stdout, "No-op: current state already matches the selected historical resource.")
+			} else {
+				fmt.Fprintln(os.Stdout, "Dry-run only. Re-run with --apply to write a new state version.")
+			}
+		}
+		return 0
+	}
+	if err := enforceResourceRollbackStrict(strict, preview); err != nil {
+		fmt.Fprintln(os.Stderr, "kl rollback resource:", err)
+		return 2
+	}
+	if !yes && !confirmResourceRollback(os.Stdin, os.Stdout, address) {
+		fmt.Fprintln(os.Stderr, "kl rollback resource: cancelled by operator")
+		return 2
+	}
+	resp, err := engine.applyRollback(ctx, stateName, address, ref, cliActor())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "kl rollback resource:", err)
+		return 1
+	}
+	if resp.Version == nil {
+		fmt.Fprintln(os.Stderr, "kl rollback resource: backend did not return new version metadata")
+		return 1
+	}
+	if format == "json" {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		enc.SetEscapeHTML(false)

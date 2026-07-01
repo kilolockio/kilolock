@@ -14,6 +14,48 @@ instead of a flat `.tfstate` blob. That gives you a drop-in HTTP backend,
 queryable state, provider-aware refresh, resource-level history/repair, and
 scoped/orchestrated workflows for large states.
 
+## Two Usage Modes
+
+Kilolock currently has two distinct lanes:
+
+- **Terraform/OpenTofu HTTP backend lane**
+  This is the default, stable path. Terraform or OpenTofu talks to
+  `/v1/states/...` with normal HTTP-backend semantics and Kilolock stays
+  wire-compatible.
+- **KL state-engine lane**
+  This is the experimental power-user path for sliced state fetch, narrower
+  reservations, and native state operations such as `kl state rm` and
+  `kl state mv`. It is the point where Kilolock starts to differ sharply from
+  plain Terraform backend behavior.
+
+If you are new to the repo, start with the HTTP backend lane first. Move to the
+state-engine lane when you specifically want large-state collaboration or native
+exact-address state mutations.
+
+### Why the native lane matters
+
+Terraform's HTTP backend model treats the state as one snapshot that must be
+pulled, locked, and written back as a whole. That is simple and compatible, but
+it becomes painful when a company keeps a lot of infrastructure in one shared
+state.
+
+Kilolock's native state-engine lane is meant for that situation:
+
+- `kl` can ask the backend for only the realized slice that matters for a
+  selected file, target, or module
+- the backend can reason about the dependency graph before the client runs
+  Terraform locally
+- the trusted native lane can reserve only the relevant branch of the graph
+  instead of serializing unrelated work
+- exact-address native operations such as `kl state rm`, `kl state mv`, and
+  resource rollback stop being "whole-state" workflows
+
+The long-term implication is important: a team should be able to keep a very
+large monolithic state when that matches the real architecture, while still
+letting different engineers or teams update their own graph branches without
+blocking everybody else. In the future, that same model can support finer
+resource- or branch-level permissions on top of one logical state.
+
 ## Requirement
 
 Terraform must be installed on the machine where you run the examples and CLI
@@ -73,6 +115,29 @@ That is enough for:
 - `kl query resource`
 - `kl query history`
 - `kl rollback resource`
+- `kl state rm`
+- `kl state mv`
+
+The local OSS stack supports both lanes, but the Terraform/OpenTofu HTTP backend
+path is still the baseline behavior to learn first.
+
+If you want to see the state-engine lane distinction explicitly, run:
+
+```sh
+examples/big-state/state-engine-demo.sh lanes
+```
+
+That demo shows both outcomes:
+
+- a proven-safe native slice that commits through `state-engine delta`
+- a fallback-classified spec that stays off the trusted state-engine lane
+
+It also shows the core trade-off of the native lane:
+
+- when the backend can prove a safe narrow slice, `kl` works on only the
+  relevant part of the state
+- when it cannot prove that safely, Kilolock fails closed or falls back rather
+  than guessing
 
 ### Self-hosted prod-like stack
 
@@ -183,6 +248,22 @@ kl rollback resource --address time_sleep.slow_a --to @1
 kl apply abort --state example --latest
 ```
 
+Experimental native state-engine operations:
+
+```sh
+KL_PROTOCOL=state-engine kl state rm example --address time_sleep.slow_b
+KL_PROTOCOL=state-engine kl state mv example --from time_sleep.slow_a --to module.demo.time_sleep.slow_a
+```
+
+Those state-engine commands are aimed at large-state and repair workflows. They
+use Kilolock's native protocol rather than Terraform's plain HTTP backend wire
+contract.
+
+That native protocol is the reason Kilolock can eventually support "one giant
+state, many independent teams" much better than a plain HTTP backend ever can:
+the backend understands graph branches and slice boundaries instead of seeing
+every operation as one whole-state blob exchange.
+
 Runbook for stuck applies:
 
 - [docs/runbooks/apply-abort.md](./docs/runbooks/apply-abort.md)
@@ -263,6 +344,12 @@ values from `.kl.toml`.
 - [examples/big-state/README.md](./examples/big-state/README.md)
 - [docs/runbooks/control-api.md](./docs/runbooks/control-api.md)
 
+### State-engine docs
+
+- [docs/state-engine-protocol-v1.md](./docs/state-engine-protocol-v1.md)
+- [docs/runbooks/state-engine-local-smoke.md](./docs/runbooks/state-engine-local-smoke.md)
+- [docs/adr/0029-state-engine-protocol-for-sliced-state-and-resource-locking.md](./docs/adr/0029-state-engine-protocol-for-sliced-state-and-resource-locking.md)
+
 ### Operator runbooks
 
 - [docs/runbooks/apply-abort.md](./docs/runbooks/apply-abort.md)
@@ -284,7 +371,7 @@ Current OSS shape:
 - v0: queryable state
 - v1: provider-aware refresh and drift surfacing
 - v2: scoped/orchestrated apply on shared state
-- v3: cross-state transactions and deeper automation later
+- v3: state-engine protocol for sliced state, narrower locking, and native state operations
 
 If you want the detailed implementation history and design rationale, start
 with:
@@ -293,6 +380,7 @@ with:
 - [docs/adr/0007-parallel-apply.md](./docs/adr/0007-parallel-apply.md)
 - [docs/adr/0014-file-scoped-plan-apply.md](./docs/adr/0014-file-scoped-plan-apply.md)
 - [docs/adr/0015-control-plane-separation.md](./docs/adr/0015-control-plane-separation.md)
+- [docs/adr/0029-state-engine-protocol-for-sliced-state-and-resource-locking.md](./docs/adr/0029-state-engine-protocol-for-sliced-state-and-resource-locking.md)
 
 ## Scope
 

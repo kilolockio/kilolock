@@ -299,6 +299,904 @@ func TestEndToEnd_PutGetDelete_MultiSegmentStateName(t *testing.T) {
 	}
 }
 
+func TestStateEngineResolveExpandAndSlice(t *testing.T) {
+	pool := requireDB(t)
+	t.Cleanup(pool.Close)
+	resetTables(t, pool)
+	setSelfHostedTenantLifecycleStatus(t, pool, store.LifecycleStatusActive)
+
+	srv := New(store.New(pool.Pool), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := srv.Handler()
+
+	state := "engine-scope"
+	body := stateWithGraph(3)
+
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/states/"+state, bytes.NewReader(body)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("seed POST status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+
+	resolveReq := httptest.NewRequest(http.MethodPost, "/v1/state-engine/state/resolve",
+		strings.NewReader(`{"state":"engine-scope"}`))
+	resolveReq.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, resolveReq)
+	if w.Code != http.StatusOK {
+		t.Fatalf("state resolve status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+	var resolved struct {
+		State   string `json:"state"`
+		StateID string `json:"state_id"`
+		Lineage string `json:"lineage"`
+		Serial  int64  `json:"serial"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resolved); err != nil {
+		t.Fatalf("decode resolve response: %v", err)
+	}
+	if resolved.State != state {
+		t.Fatalf("resolved state = %q, want %q", resolved.State, state)
+	}
+	if resolved.StateID == "" || resolved.Lineage == "" || resolved.Serial != 3 {
+		t.Fatalf("unexpected resolved metadata: %+v", resolved)
+	}
+
+	expandReq := httptest.NewRequest(http.MethodPost, "/v1/state-engine/scope/expand", strings.NewReader(`{
+	  "state":"engine-scope",
+	  "selectors":[{"kind":"resource_address","value":"aws_subnet.private"}],
+	  "client_context":{
+	    "explicit_write_candidates":["aws_subnet.private"],
+	    "explicit_read_candidates":[],
+	    "undeployed_config_candidates":[]
+	  }
+	}`))
+	expandReq.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, expandReq)
+	if w.Code != http.StatusOK {
+		t.Fatalf("scope expand status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+	var expanded struct {
+		ContractSource string   `json:"contract_source"`
+		FetchAddresses []string `json:"fetch_addresses"`
+		ScopeContract  struct {
+			FetchAddresses      []string `json:"fetch_addresses"`
+			WriteAddresses      []string `json:"write_addresses"`
+			ReadAddresses       []string `json:"read_addresses"`
+			ConfigRequiredNodes []string `json:"config_required_nodes"`
+			RemovedConfigNodes  []string `json:"removed_config_nodes"`
+			Missing             []string `json:"missing_from_state"`
+			Undeployed          []string `json:"undeployed_candidates"`
+			UnknownMissing      []string `json:"unknown_missing_from_state"`
+			Confidence          string   `json:"confidence"`
+			Notes               []string `json:"notes"`
+			Diagnostics         struct {
+				GraphCacheHit         bool `json:"graph_cache_hit"`
+				RealizedResourceCount int  `json:"realized_resource_count"`
+				DependencyEdgeCount   int  `json:"dependency_edge_count"`
+				InventoryScanCount    int  `json:"inventory_scan_count"`
+			} `json:"diagnostics"`
+		} `json:"scope_contract"`
+		WriteClosure   []string         `json:"realized_write_closure"`
+		ReadClosure    []string         `json:"realized_read_closure"`
+		Missing        []string         `json:"missing_from_state"`
+		Undeployed     []string         `json:"undeployed_candidates"`
+		UnknownMissing []string         `json:"unknown_missing_from_state"`
+		Confidence     string           `json:"confidence"`
+		Reservations   []map[string]any `json:"reservation_candidates"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &expanded); err != nil {
+		t.Fatalf("decode expand response: %v", err)
+	}
+	if !reflect.DeepEqual(expanded.WriteClosure, []string{"aws_subnet.private"}) {
+		t.Fatalf("write closure = %v, want [aws_subnet.private]", expanded.WriteClosure)
+	}
+	if !reflect.DeepEqual(expanded.ReadClosure, []string{"aws_vpc.main"}) {
+		t.Fatalf("read closure = %v, want [aws_vpc.main]", expanded.ReadClosure)
+	}
+	if expanded.ContractSource != "backend_authoritative" {
+		t.Fatalf("contract_source = %q, want backend_authoritative", expanded.ContractSource)
+	}
+	if !reflect.DeepEqual(expanded.FetchAddresses, []string{"aws_subnet.private", "aws_vpc.main"}) {
+		t.Fatalf("fetch_addresses = %v, want [aws_subnet.private aws_vpc.main]", expanded.FetchAddresses)
+	}
+	if !reflect.DeepEqual(expanded.ScopeContract.FetchAddresses, []string{"aws_subnet.private", "aws_vpc.main"}) {
+		t.Fatalf("scope_contract.fetch_addresses = %v, want [aws_subnet.private aws_vpc.main]", expanded.ScopeContract.FetchAddresses)
+	}
+	if !reflect.DeepEqual(expanded.ScopeContract.WriteAddresses, []string{"aws_subnet.private"}) {
+		t.Fatalf("scope_contract.write_addresses = %v, want [aws_subnet.private]", expanded.ScopeContract.WriteAddresses)
+	}
+	if !reflect.DeepEqual(expanded.ScopeContract.ReadAddresses, []string{"aws_vpc.main"}) {
+		t.Fatalf("scope_contract.read_addresses = %v, want [aws_vpc.main]", expanded.ScopeContract.ReadAddresses)
+	}
+	if len(expanded.Missing) != 0 {
+		t.Fatalf("missing_from_state = %v, want empty", expanded.Missing)
+	}
+	if len(expanded.Undeployed) != 0 {
+		t.Fatalf("undeployed_candidates = %v, want empty", expanded.Undeployed)
+	}
+	if len(expanded.UnknownMissing) != 0 {
+		t.Fatalf("unknown_missing_from_state = %v, want empty", expanded.UnknownMissing)
+	}
+	if expanded.Confidence != "safe" {
+		t.Fatalf("confidence = %q, want safe", expanded.Confidence)
+	}
+	if expanded.ScopeContract.Diagnostics.RealizedResourceCount != 2 {
+		t.Fatalf("realized_resource_count = %d, want 2", expanded.ScopeContract.Diagnostics.RealizedResourceCount)
+	}
+	if expanded.ScopeContract.Diagnostics.DependencyEdgeCount != 1 {
+		t.Fatalf("dependency_edge_count = %d, want 1", expanded.ScopeContract.Diagnostics.DependencyEdgeCount)
+	}
+	if expanded.ScopeContract.Diagnostics.InventoryScanCount != 0 {
+		t.Fatalf("inventory_scan_count = %d, want 0 for direct resource selector", expanded.ScopeContract.Diagnostics.InventoryScanCount)
+	}
+	if len(expanded.Reservations) != 2 {
+		t.Fatalf("reservations = %v, want 2 entries", expanded.Reservations)
+	}
+
+	sliceReq := httptest.NewRequest(http.MethodPost, "/v1/state-engine/state/slice", strings.NewReader(`{
+	  "state":"engine-scope",
+	  "addresses":["aws_subnet.private","aws_vpc.main"],
+	  "base_serial":3
+	}`))
+	sliceReq.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, sliceReq)
+	if w.Code != http.StatusOK {
+		t.Fatalf("state slice status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+	var sliced struct {
+		State string `json:"state"`
+		Slice struct {
+			Resources []store.StateEngineResource `json:"resources"`
+		} `json:"slice"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &sliced); err != nil {
+		t.Fatalf("decode slice response: %v", err)
+	}
+	if sliced.State != state {
+		t.Fatalf("sliced state = %q, want %q", sliced.State, state)
+	}
+	if len(sliced.Slice.Resources) != 2 {
+		t.Fatalf("slice resources = %d, want 2", len(sliced.Slice.Resources))
+	}
+	if sliced.Slice.Resources[0].AttributesHash == "" && sliced.Slice.Resources[1].AttributesHash == "" {
+		t.Fatalf("slice attributes_hash missing on both resources: %+v", sliced.Slice.Resources)
+	}
+
+	expandReq = httptest.NewRequest(http.MethodPost, "/v1/state-engine/scope/expand", strings.NewReader(`{
+	  "state":"engine-scope",
+	  "selectors":[{"kind":"resource_address","value":"aws_subnet.future"}],
+	  "client_context":{
+	    "explicit_write_candidates":["aws_subnet.future"],
+	    "explicit_read_candidates":[],
+	    "undeployed_config_candidates":["aws_subnet.future"],
+	    "config_nodes":[
+	      {"address":"aws_subnet.future","dependencies":["aws_vpc.main"]}
+	    ]
+	  }
+	}`))
+	expandReq.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, expandReq)
+	if w.Code != http.StatusOK {
+		t.Fatalf("scope expand undeployed status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &expanded); err != nil {
+		t.Fatalf("decode undeployed expand response: %v", err)
+	}
+	if !reflect.DeepEqual(expanded.ReadClosure, []string{"aws_vpc.main"}) {
+		t.Fatalf("read closure for undeployed = %v, want [aws_vpc.main]", expanded.ReadClosure)
+	}
+	if !reflect.DeepEqual(expanded.ScopeContract.FetchAddresses, []string{"aws_vpc.main"}) {
+		t.Fatalf("scope_contract.fetch_addresses for undeployed = %v, want [aws_vpc.main]", expanded.ScopeContract.FetchAddresses)
+	}
+	if !reflect.DeepEqual(expanded.ScopeContract.ConfigRequiredNodes, []string{"aws_subnet.future"}) {
+		t.Fatalf("scope_contract.config_required_nodes = %v, want [aws_subnet.future]", expanded.ScopeContract.ConfigRequiredNodes)
+	}
+	if !reflect.DeepEqual(expanded.Missing, []string{"aws_subnet.future"}) {
+		t.Fatalf("missing_from_state = %v, want [aws_subnet.future]", expanded.Missing)
+	}
+	if !reflect.DeepEqual(expanded.ScopeContract.Missing, []string{"aws_subnet.future"}) {
+		t.Fatalf("scope_contract.missing_from_state = %v, want [aws_subnet.future]", expanded.ScopeContract.Missing)
+	}
+	if !reflect.DeepEqual(expanded.Undeployed, []string{"aws_subnet.future"}) {
+		t.Fatalf("undeployed_candidates = %v, want [aws_subnet.future]", expanded.Undeployed)
+	}
+	if !reflect.DeepEqual(expanded.ScopeContract.Undeployed, []string{"aws_subnet.future"}) {
+		t.Fatalf("scope_contract.undeployed_candidates = %v, want [aws_subnet.future]", expanded.ScopeContract.Undeployed)
+	}
+	if len(expanded.UnknownMissing) != 0 {
+		t.Fatalf("unknown_missing_from_state = %v, want empty", expanded.UnknownMissing)
+	}
+	if len(expanded.ScopeContract.UnknownMissing) != 0 {
+		t.Fatalf("scope_contract.unknown_missing_from_state = %v, want empty", expanded.ScopeContract.UnknownMissing)
+	}
+	if expanded.Confidence != "safe" {
+		t.Fatalf("confidence for undeployed = %q, want safe", expanded.Confidence)
+	}
+	if expanded.ScopeContract.Confidence != "safe" {
+		t.Fatalf("scope_contract.confidence for undeployed = %q, want safe", expanded.ScopeContract.Confidence)
+	}
+
+	expandReq = httptest.NewRequest(http.MethodPost, "/v1/state-engine/scope/expand", strings.NewReader(`{
+	  "state":"engine-scope",
+	  "selectors":[{"kind":"resource_address","value":"aws_subnet.future"}],
+	  "client_context":{
+	    "explicit_write_candidates":["aws_subnet.future"],
+	    "explicit_read_candidates":["aws_vpc.main"],
+	    "undeployed_config_candidates":["aws_subnet.future","aws_internet_gateway.future"],
+	    "config_nodes":[
+	      {"address":"aws_subnet.future","dependencies":["aws_vpc.main"]},
+	      {"address":"aws_vpc.main","dependencies":["aws_internet_gateway.future"]},
+	      {"address":"aws_internet_gateway.future","dependencies":[]}
+	    ]
+	  }
+	}`))
+	expandReq.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, expandReq)
+	if w.Code != http.StatusOK {
+		t.Fatalf("scope expand realized-read->undeployed status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &expanded); err != nil {
+		t.Fatalf("decode realized-read->undeployed expand response: %v", err)
+	}
+	if !reflect.DeepEqual(expanded.ReadClosure, []string{"aws_vpc.main"}) {
+		t.Fatalf("read closure for realized-read->undeployed = %v, want [aws_vpc.main]", expanded.ReadClosure)
+	}
+	if !reflect.DeepEqual(expanded.ScopeContract.FetchAddresses, []string{"aws_vpc.main"}) {
+		t.Fatalf("scope_contract.fetch_addresses for realized-read->undeployed = %v, want [aws_vpc.main]", expanded.ScopeContract.FetchAddresses)
+	}
+	if !reflect.DeepEqual(expanded.ScopeContract.ConfigRequiredNodes, []string{"aws_internet_gateway.future", "aws_subnet.future"}) {
+		t.Fatalf("scope_contract.config_required_nodes for realized-read->undeployed = %v, want [aws_internet_gateway.future aws_subnet.future]", expanded.ScopeContract.ConfigRequiredNodes)
+	}
+	if !reflect.DeepEqual(expanded.ScopeContract.Undeployed, []string{"aws_internet_gateway.future", "aws_subnet.future"}) {
+		t.Fatalf("scope_contract.undeployed_candidates for realized-read->undeployed = %v, want [aws_internet_gateway.future aws_subnet.future]", expanded.ScopeContract.Undeployed)
+	}
+	if len(expanded.ScopeContract.UnknownMissing) != 0 {
+		t.Fatalf("scope_contract.unknown_missing_from_state for realized-read->undeployed = %v, want empty", expanded.ScopeContract.UnknownMissing)
+	}
+	if expanded.ScopeContract.Confidence != "safe" {
+		t.Fatalf("scope_contract.confidence for realized-read->undeployed = %q, want safe", expanded.ScopeContract.Confidence)
+	}
+	if len(expanded.ScopeContract.Notes) == 0 {
+		t.Fatalf("scope_contract.notes for realized-read->undeployed should not be empty")
+	}
+
+	expandReq = httptest.NewRequest(http.MethodPost, "/v1/state-engine/scope/expand", strings.NewReader(`{
+	  "state":"engine-scope",
+	  "selectors":[{"kind":"resource_address","value":"aws_subnet.private"}],
+	  "client_context":{
+	    "explicit_write_candidates":["aws_subnet.private"],
+	    "explicit_read_candidates":[],
+	    "undeployed_config_candidates":[],
+	    "removed_config_candidates":["aws_subnet.private"]
+	  }
+	}`))
+	expandReq.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, expandReq)
+	if w.Code != http.StatusOK {
+		t.Fatalf("scope expand removed-realized status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &expanded); err != nil {
+		t.Fatalf("decode removed-realized expand response: %v", err)
+	}
+	if !reflect.DeepEqual(expanded.ScopeContract.RemovedConfigNodes, []string{"aws_subnet.private"}) {
+		t.Fatalf("scope_contract.removed_config_nodes = %v, want [aws_subnet.private]", expanded.ScopeContract.RemovedConfigNodes)
+	}
+	if !reflect.DeepEqual(expanded.ScopeContract.WriteAddresses, []string{"aws_subnet.private"}) {
+		t.Fatalf("scope_contract.write_addresses for removed-realized = %v, want [aws_subnet.private]", expanded.ScopeContract.WriteAddresses)
+	}
+	if expanded.ScopeContract.Confidence != "safe" {
+		t.Fatalf("scope_contract.confidence for removed-realized = %q, want safe", expanded.ScopeContract.Confidence)
+	}
+	if len(expanded.ScopeContract.Notes) == 0 {
+		t.Fatalf("scope_contract.notes for removed-realized should not be empty")
+	}
+
+	expandReq = httptest.NewRequest(http.MethodPost, "/v1/state-engine/scope/expand", strings.NewReader(`{
+	  "state":"engine-scope",
+	  "selectors":[{"kind":"resource_address","value":"aws_subnet.deleted_already"}],
+	  "client_context":{
+	    "explicit_write_candidates":["aws_subnet.deleted_already"],
+	    "explicit_read_candidates":[],
+	    "undeployed_config_candidates":[],
+	    "removed_config_candidates":["aws_subnet.deleted_already"]
+	  }
+	}`))
+	expandReq.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, expandReq)
+	if w.Code != http.StatusOK {
+		t.Fatalf("scope expand removed-absent status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &expanded); err != nil {
+		t.Fatalf("decode removed-absent expand response: %v", err)
+	}
+	if !reflect.DeepEqual(expanded.ScopeContract.RemovedConfigNodes, []string{"aws_subnet.deleted_already"}) {
+		t.Fatalf("scope_contract.removed_config_nodes absent = %v, want [aws_subnet.deleted_already]", expanded.ScopeContract.RemovedConfigNodes)
+	}
+	if len(expanded.ScopeContract.UnknownMissing) != 0 {
+		t.Fatalf("scope_contract.unknown_missing_from_state for removed-absent = %v, want empty", expanded.ScopeContract.UnknownMissing)
+	}
+	if expanded.ScopeContract.Confidence != "safe" {
+		t.Fatalf("scope_contract.confidence for removed-absent = %q, want safe", expanded.ScopeContract.Confidence)
+	}
+	if len(expanded.ScopeContract.Notes) == 0 {
+		t.Fatalf("scope_contract.notes for removed-absent should not be empty")
+	}
+
+	sliceReq = httptest.NewRequest(http.MethodPost, "/v1/state-engine/state/slice", strings.NewReader(`{
+	  "state":"engine-scope",
+	  "addresses":[],
+	  "base_serial":3
+	}`))
+	sliceReq.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, sliceReq)
+	if w.Code != http.StatusOK {
+		t.Fatalf("empty state slice status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &sliced); err != nil {
+		t.Fatalf("decode empty slice response: %v", err)
+	}
+	if len(sliced.Slice.Resources) != 0 {
+		t.Fatalf("empty slice resources = %d, want 0", len(sliced.Slice.Resources))
+	}
+}
+
+func TestStateEngineCoarseLockBlocksTerraformLockAndForceUnlock(t *testing.T) {
+	pool := requireDB(t)
+	t.Cleanup(pool.Close)
+	resetTables(t, pool)
+	setSelfHostedTenantLifecycleStatus(t, pool, store.LifecycleStatusActive)
+
+	srv := New(store.New(pool.Pool), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := srv.Handler()
+
+	state := "engine-lock"
+
+	acquireReq := httptest.NewRequest(http.MethodPost, "/v1/state-engine/terraform-lock/acquire", strings.NewReader(`{
+	  "state":"engine-lock",
+	  "apply_id":"apply-1",
+	  "holder":"alice@example.com@kl",
+	  "scope_summary":["null_resource.example"]
+	}`))
+	acquireReq.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, acquireReq)
+	if w.Code != http.StatusOK {
+		t.Fatalf("coarse lock acquire status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+
+	lockBody := `{"ID":"tf-lock-1","Operation":"OperationTypeApply","Info":"","Who":"bob@laptop","Version":"1.13.4","Created":"2026-06-24T10:00:00Z","Path":"http://localhost:8080/v1/states/engine-lock"}`
+	lockReq := httptest.NewRequest("LOCK", "/v1/states/"+state, strings.NewReader(lockBody))
+	lockReq.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, lockReq)
+	if w.Code != http.StatusLocked {
+		t.Fatalf("terraform LOCK during coarse lock status = %d, want 423 (body=%s)", w.Code, w.Body.String())
+	}
+	var existing store.LockInfo
+	if err := json.Unmarshal(w.Body.Bytes(), &existing); err != nil {
+		t.Fatalf("decode conflicting lock: %v", err)
+	}
+	if !strings.HasPrefix(existing.Path, "state-engine://") {
+		t.Fatalf("conflicting lock path = %q, want state-engine://...", existing.Path)
+	}
+
+	forceReq := httptest.NewRequest("UNLOCK", "/v1/states/"+state, nil)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, forceReq)
+	if w.Code != http.StatusOK {
+		t.Fatalf("force unlock status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+
+	lockReq = httptest.NewRequest("LOCK", "/v1/states/"+state, strings.NewReader(lockBody))
+	lockReq.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, lockReq)
+	if w.Code != http.StatusLocked {
+		t.Fatalf("terraform LOCK after force-unlock attempt status = %d, want 423 (body=%s)", w.Code, w.Body.String())
+	}
+
+	releaseReq := httptest.NewRequest(http.MethodPost, "/v1/state-engine/terraform-lock/release", strings.NewReader(`{
+	  "state":"engine-lock",
+	  "apply_id":"apply-1",
+	  "actor":"alice@example.com@kl"
+	}`))
+	releaseReq.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, releaseReq)
+	if w.Code != http.StatusOK {
+		t.Fatalf("coarse lock release status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+
+	lockReq = httptest.NewRequest("LOCK", "/v1/states/"+state, strings.NewReader(lockBody))
+	lockReq.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, lockReq)
+	if w.Code != http.StatusOK {
+		t.Fatalf("terraform LOCK after coarse lock release status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+}
+
+func TestAdminRollbackApplyBlockedByStateEngineCoarseLock(t *testing.T) {
+	pool := requireDB(t)
+	t.Cleanup(pool.Close)
+	resetTables(t, pool)
+	setSelfHostedTenantLifecycleStatus(t, pool, store.LifecycleStatusActive)
+
+	srv := New(store.New(pool.Pool), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := srv.Handler()
+
+	state := "rollback-locked"
+
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/states/"+state, bytes.NewReader(minimalState(1))))
+	if w.Code != http.StatusOK {
+		t.Fatalf("seed POST serial=1 status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/states/"+state, bytes.NewReader(minimalState(2))))
+	if w.Code != http.StatusOK {
+		t.Fatalf("seed POST serial=2 status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+
+	acquireReq := httptest.NewRequest(http.MethodPost, "/v1/state-engine/terraform-lock/acquire", strings.NewReader(`{
+	  "state":"rollback-locked",
+	  "apply_id":"apply-rollback-lock",
+	  "holder":"alice@example.com@kl",
+	  "scope_summary":["full-state rollback"]
+	}`))
+	acquireReq.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, acquireReq)
+	if w.Code != http.StatusOK {
+		t.Fatalf("coarse lock acquire status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+
+	rollbackReq := httptest.NewRequest(http.MethodPost, "/v1/admin/state/rollback/apply?name="+state, strings.NewReader(`{
+	  "to":"1",
+	  "actor":"rollback-tester"
+	}`))
+	rollbackReq.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, rollbackReq)
+	if w.Code != http.StatusLocked {
+		t.Fatalf("admin rollback apply status = %d, want 423 (body=%s)", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Error string         `json:"error"`
+		Lock  store.LockInfo `json:"lock"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode rollback lock response: %v", err)
+	}
+	if resp.Error != "state locked" {
+		t.Fatalf("rollback lock error = %q, want %q", resp.Error, "state locked")
+	}
+	if !strings.HasPrefix(resp.Lock.Path, "state-engine://") {
+		t.Fatalf("rollback lock path = %q, want state-engine://...", resp.Lock.Path)
+	}
+}
+
+func TestStateEngineNativeResourceRemoveAndMove(t *testing.T) {
+	pool := requireDB(t)
+	t.Cleanup(pool.Close)
+	resetTables(t, pool)
+	setSelfHostedTenantLifecycleStatus(t, pool, store.LifecycleStatusActive)
+
+	srv := New(store.New(pool.Pool), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := srv.Handler()
+
+	state := "engine-native-mutate"
+	body := stateWithGraph(3)
+
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/states/"+state, bytes.NewReader(body)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("seed POST status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+
+	previewRemoveReq := httptest.NewRequest(http.MethodPost, "/v1/state-engine/resource-remove/preview", strings.NewReader(`{
+	  "state":"engine-native-mutate",
+	  "address":"aws_subnet.private[0]"
+	}`))
+	previewRemoveReq.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, previewRemoveReq)
+	if w.Code != http.StatusOK {
+		t.Fatalf("remove preview status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+	var removePreview struct {
+		Preview store.ResourceMutationPreview `json:"preview"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &removePreview); err != nil {
+		t.Fatalf("decode remove preview: %v", err)
+	}
+	if removePreview.Preview.Action != "remove" {
+		t.Fatalf("remove preview action = %q, want remove", removePreview.Preview.Action)
+	}
+	if len(removePreview.Preview.Dependencies) != 1 || removePreview.Preview.Dependencies[0] != "aws_vpc.main" {
+		t.Fatalf("remove preview dependencies = %v", removePreview.Preview.Dependencies)
+	}
+
+	applyMoveReq := httptest.NewRequest(http.MethodPost, "/v1/state-engine/resource-move/apply", strings.NewReader(`{
+	  "state":"engine-native-mutate",
+	  "address":"aws_vpc.main",
+	  "to":"module.edge.aws_vpc.main",
+	  "actor":"tester"
+	}`))
+	applyMoveReq.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, applyMoveReq)
+	if w.Code != http.StatusOK {
+		t.Fatalf("move apply status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+
+	sliceReq := httptest.NewRequest(http.MethodPost, "/v1/state-engine/state/slice", strings.NewReader(`{
+	  "state":"engine-native-mutate",
+	  "addresses":["module.edge.aws_vpc.main","aws_subnet.private[0]"]
+	}`))
+	sliceReq.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, sliceReq)
+	if w.Code != http.StatusOK {
+		t.Fatalf("slice after move status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+	var sliced struct {
+		Slice struct {
+			Resources []store.StateEngineResource `json:"resources"`
+		} `json:"slice"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &sliced); err != nil {
+		t.Fatalf("decode slice after move: %v", err)
+	}
+	if len(sliced.Slice.Resources) != 2 {
+		t.Fatalf("slice resources after move = %d, want 2", len(sliced.Slice.Resources))
+	}
+	foundMoved := false
+	foundDependencyRewrite := false
+	for _, resource := range sliced.Slice.Resources {
+		if resource.Address == "module.edge.aws_vpc.main" {
+			foundMoved = true
+		}
+		if resource.Address == "aws_subnet.private[0]" && len(resource.Dependencies) == 1 && resource.Dependencies[0] == "module.edge.aws_vpc.main" {
+			foundDependencyRewrite = true
+		}
+	}
+	if !foundMoved {
+		t.Fatalf("moved address not present in slice: %+v", sliced.Slice.Resources)
+	}
+	if !foundDependencyRewrite {
+		t.Fatalf("dependency rewrite not reflected in slice: %+v", sliced.Slice.Resources)
+	}
+
+	applyRemoveReq := httptest.NewRequest(http.MethodPost, "/v1/state-engine/resource-remove/apply", strings.NewReader(`{
+	  "state":"engine-native-mutate",
+	  "address":"aws_subnet.private[0]",
+	  "actor":"tester"
+	}`))
+	applyRemoveReq.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, applyRemoveReq)
+	if w.Code != http.StatusOK {
+		t.Fatalf("remove apply status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+
+	sliceReq = httptest.NewRequest(http.MethodPost, "/v1/state-engine/state/slice", strings.NewReader(`{
+	  "state":"engine-native-mutate",
+	  "addresses":["module.edge.aws_vpc.main","aws_subnet.private[0]"]
+	}`))
+	sliceReq.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, sliceReq)
+	if w.Code != http.StatusOK {
+		t.Fatalf("slice after remove status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &sliced); err != nil {
+		t.Fatalf("decode slice after remove: %v", err)
+	}
+	if len(sliced.Slice.Resources) != 1 || sliced.Slice.Resources[0].Address != "module.edge.aws_vpc.main" {
+		t.Fatalf("slice after remove = %+v, want only moved vpc", sliced.Slice.Resources)
+	}
+
+	previewRollbackReq := httptest.NewRequest(http.MethodPost, "/v1/state-engine/resource-rollback/preview", strings.NewReader(`{
+	  "state":"engine-native-mutate",
+	  "address":"aws_subnet.private[0]",
+	  "to":"@1"
+	}`))
+	previewRollbackReq.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, previewRollbackReq)
+	if w.Code != http.StatusOK {
+		t.Fatalf("rollback preview status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+	var rollbackPreview struct {
+		Preview store.ResourceRollbackPreview `json:"preview"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &rollbackPreview); err != nil {
+		t.Fatalf("decode rollback preview: %v", err)
+	}
+	if rollbackPreview.Preview.Action != "restore" {
+		t.Fatalf("rollback preview action = %q, want restore", rollbackPreview.Preview.Action)
+	}
+
+	applyRollbackReq := httptest.NewRequest(http.MethodPost, "/v1/state-engine/resource-rollback/apply", strings.NewReader(`{
+	  "state":"engine-native-mutate",
+	  "address":"aws_subnet.private[0]",
+	  "to":"@1",
+	  "actor":"tester"
+	}`))
+	applyRollbackReq.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, applyRollbackReq)
+	if w.Code != http.StatusOK {
+		t.Fatalf("rollback apply status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+
+	sliceReq = httptest.NewRequest(http.MethodPost, "/v1/state-engine/state/slice", strings.NewReader(`{
+	  "state":"engine-native-mutate",
+	  "addresses":["module.edge.aws_vpc.main","aws_subnet.private[0]"]
+	}`))
+	sliceReq.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, sliceReq)
+	if w.Code != http.StatusOK {
+		t.Fatalf("slice after rollback status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &sliced); err != nil {
+		t.Fatalf("decode slice after rollback: %v", err)
+	}
+	if len(sliced.Slice.Resources) != 2 {
+		t.Fatalf("slice resources after rollback = %d, want 2", len(sliced.Slice.Resources))
+	}
+}
+
+func TestStateEngineSnapshotCommit(t *testing.T) {
+	pool := requireDB(t)
+	t.Cleanup(pool.Close)
+	resetTables(t, pool)
+	setSelfHostedTenantLifecycleStatus(t, pool, store.LifecycleStatusActive)
+
+	srv := New(store.New(pool.Pool), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := srv.Handler()
+
+	state := "engine-snapshot-commit"
+	body := stateWithGraph(1)
+
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/states/"+state, bytes.NewReader(body)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("seed POST status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatalf("decode seed state: %v", err)
+	}
+	resources, _ := decoded["resources"].([]any)
+	for _, item := range resources {
+		resource, _ := item.(map[string]any)
+		if resource["type"] != "aws_vpc" || resource["name"] != "main" {
+			continue
+		}
+		instances, _ := resource["instances"].([]any)
+		if len(instances) == 0 {
+			continue
+		}
+		instance, _ := instances[0].(map[string]any)
+		attrs, _ := instance["attributes"].(map[string]any)
+		attrs["id"] = "vpc-999"
+	}
+	decoded["serial"] = float64(2)
+	updatedBody, err := json.Marshal(decoded)
+	if err != nil {
+		t.Fatalf("marshal updated state: %v", err)
+	}
+
+	commitReq := httptest.NewRequest(http.MethodPost, "/v1/state-engine/state/commit", strings.NewReader(fmt.Sprintf(`{
+	  "state":"%s",
+	  "apply_id":"apply-commit-1",
+	  "base_serial":1,
+	  "mode":"snapshot",
+	  "raw_state":%q,
+	  "write_set":["aws_vpc.main"],
+	  "source":"state-engine-apply",
+	  "actor":"tester"
+	}`, state, string(updatedBody))))
+	commitReq.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, commitReq)
+	if w.Code != http.StatusOK {
+		t.Fatalf("snapshot commit status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+	var commitResp struct {
+		CommittedSerial int64  `json:"committed_serial"`
+		CommitMode      string `json:"commit_mode"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &commitResp); err != nil {
+		t.Fatalf("decode snapshot commit: %v", err)
+	}
+	if commitResp.CommittedSerial != 2 {
+		t.Fatalf("committed serial = %d, want 2", commitResp.CommittedSerial)
+	}
+	if commitResp.CommitMode != "snapshot-selected" {
+		t.Fatalf("commit mode = %q, want snapshot-selected", commitResp.CommitMode)
+	}
+
+	decoded["serial"] = float64(3)
+	updatedBody2, err := json.Marshal(decoded)
+	if err != nil {
+		t.Fatalf("marshal updated delta state: %v", err)
+	}
+	var deltaState struct {
+		TerraformVersion string           `json:"terraform_version"`
+		Lineage          string           `json:"lineage"`
+		Outputs          map[string]any   `json:"outputs"`
+		CheckResults     json.RawMessage  `json:"check_results"`
+		Resources        []map[string]any `json:"resources"`
+	}
+	if err := json.Unmarshal(updatedBody2, &deltaState); err != nil {
+		t.Fatalf("decode updated delta state: %v", err)
+	}
+	var selected []map[string]any
+	for _, resource := range deltaState.Resources {
+		if resource["type"] == "aws_vpc" && resource["name"] == "main" {
+			selected = append(selected, resource)
+		}
+	}
+	deltaBody, err := json.Marshal(map[string]any{
+		"terraform_version": deltaState.TerraformVersion,
+		"lineage":           deltaState.Lineage,
+		"outputs":           deltaState.Outputs,
+		"check_results":     deltaState.CheckResults,
+		"resources":         selected,
+		"write_set":         []string{"aws_vpc.main"},
+	})
+	if err != nil {
+		t.Fatalf("marshal delta commit body: %v", err)
+	}
+	commitReq = httptest.NewRequest(http.MethodPost, "/v1/state-engine/state/commit", strings.NewReader(fmt.Sprintf(`{
+	  "state":"%s",
+	  "apply_id":"apply-commit-2",
+	  "base_serial":2,
+	  "mode":"delta",
+	  "delta":%s,
+	  "source":"state-engine-apply",
+	  "actor":"tester"
+	}`, state, string(deltaBody))))
+	commitReq.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, commitReq)
+	if w.Code != http.StatusOK {
+		t.Fatalf("delta commit status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &commitResp); err != nil {
+		t.Fatalf("decode delta commit: %v", err)
+	}
+	if commitResp.CommittedSerial != 3 {
+		t.Fatalf("delta committed serial = %d, want 3", commitResp.CommittedSerial)
+	}
+	if commitResp.CommitMode != "delta" {
+		t.Fatalf("delta commit mode = %q, want delta", commitResp.CommitMode)
+	}
+
+	sliceReq := httptest.NewRequest(http.MethodPost, "/v1/state-engine/state/slice", strings.NewReader(fmt.Sprintf(`{
+	  "state":"%s",
+	  "addresses":["aws_vpc.main","aws_subnet.private[0]"]
+	}`, state)))
+	sliceReq.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, sliceReq)
+	if w.Code != http.StatusOK {
+		t.Fatalf("slice after snapshot commit status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+	var sliced struct {
+		Slice struct {
+			Resources []store.StateEngineResource `json:"resources"`
+		} `json:"slice"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &sliced); err != nil {
+		t.Fatalf("decode slice after snapshot commit: %v", err)
+	}
+	if len(sliced.Slice.Resources) != 2 {
+		t.Fatalf("slice resources after snapshot commit = %d, want 2", len(sliced.Slice.Resources))
+	}
+	foundUpdatedVPC := false
+	for _, resource := range sliced.Slice.Resources {
+		if resource.Address == "aws_vpc.main" && strings.Contains(string(resource.Attributes), "vpc-999") {
+			foundUpdatedVPC = true
+		}
+	}
+	if !foundUpdatedVPC {
+		t.Fatalf("updated aws_vpc.main not reflected in slice: %+v", sliced.Slice.Resources)
+	}
+}
+
+func TestStateEngineApplyRunLifecycle(t *testing.T) {
+	pool := requireDB(t)
+	t.Cleanup(pool.Close)
+	resetTables(t, pool)
+	setSelfHostedTenantLifecycleStatus(t, pool, store.LifecycleStatusActive)
+
+	srv := New(store.New(pool.Pool), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := srv.Handler()
+
+	state := "engine-apply-run"
+	body := minimalState(1)
+
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/states/"+state, bytes.NewReader(body)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("seed POST status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+
+	beginReq := httptest.NewRequest(http.MethodPost, "/v1/state-engine/apply-runs/begin", strings.NewReader(fmt.Sprintf(`{
+	  "state":"%s",
+	  "actor":"tester",
+	  "source_serial":1
+	}`, state)))
+	beginReq.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, beginReq)
+	if w.Code != http.StatusOK {
+		t.Fatalf("apply-run begin status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+	var run store.ApplyRun
+	if err := json.Unmarshal(w.Body.Bytes(), &run); err != nil {
+		t.Fatalf("decode apply-run begin: %v", err)
+	}
+	if strings.TrimSpace(run.ID) == "" {
+		t.Fatal("apply-run id missing from begin response")
+	}
+
+	statusReq := httptest.NewRequest(http.MethodGet, "/v1/state-engine/apply-runs/"+run.ID+"/status", nil)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, statusReq)
+	if w.Code != http.StatusOK {
+		t.Fatalf("apply-run status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+	var statusResp struct {
+		Status store.ApplyRunStatus `json:"status"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &statusResp); err != nil {
+		t.Fatalf("decode apply-run status: %v", err)
+	}
+	if statusResp.Status != store.ApplyRunRunning {
+		t.Fatalf("apply-run status = %q, want running", statusResp.Status)
+	}
+
+	finishReq := httptest.NewRequest(http.MethodPost, "/v1/state-engine/apply-runs/"+run.ID+"/finish", strings.NewReader(`{
+	  "status":"committed",
+	  "committed_serial":2,
+	  "resources_planned":1,
+	  "resources_applied":1
+	}`))
+	finishReq.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, finishReq)
+	if w.Code != http.StatusOK {
+		t.Fatalf("apply-run finish status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+
+	statusReq = httptest.NewRequest(http.MethodGet, "/v1/state-engine/apply-runs/"+run.ID+"/status", nil)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, statusReq)
+	if w.Code != http.StatusOK {
+		t.Fatalf("apply-run status after finish = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &statusResp); err != nil {
+		t.Fatalf("decode finished apply-run status: %v", err)
+	}
+	if statusResp.Status != store.ApplyRunCommitted {
+		t.Fatalf("apply-run status after finish = %q, want committed", statusResp.Status)
+	}
+}
+
 func TestEndToEnd_LockLifecycle(t *testing.T) {
 	pool := requireDB(t)
 	t.Cleanup(pool.Close)

@@ -376,8 +376,263 @@ func (s *Store) WriteState(ctx context.Context, name, lockID string, rawState []
 // state_versions, which is safe (no torn writes) but visible as a
 // conflict to the operator. Documented in ADR 0007 and the v2e
 // roadmap.
-func (s *Store) WriteStateForApply(ctx context.Context, name string, rawState []byte, source, actor string) error {
+func (s *Store) WriteStateForApply(ctx context.Context, name, applyID string, baseSerial int64, rawState []byte, source, actor string) error {
+	_ = applyID
+	_ = baseSerial
 	return s.writeStateInternal(ctx, name, "", rawState, source, actor, true)
+}
+
+// WriteStateDeltaForApply is the native state-engine variant of
+// WriteStateForApply. It still writes a canonical full raw_state snapshot into
+// state_versions, but only reprojects resource rows for the selected changed
+// addresses plus outputs. Untouched rows stay open as-is.
+func (s *Store) WriteStateDeltaForApply(ctx context.Context, name, applyID string, baseSerial int64, rawState []byte, source, actor string, changedAddresses []string) error {
+	_ = applyID
+	_ = baseSerial
+	parsed, err := tfstate.Parse(rawState)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidState, err)
+	}
+
+	tenantID := auth.TenantFromContext(ctx)
+	changedAddresses = dedupeSortedStrings(changedAddresses)
+
+	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		if err := enforceTenantLifecycleActive(ctx, tx, tenantID); err != nil {
+			return err
+		}
+		creator := initialStateCreatorKL
+		if strings.EqualFold(strings.TrimSpace(source), "http_backend") {
+			creator = initialStateCreatorBackend
+		}
+		stateID, err := upsertStateWithCreator(ctx, tx, tenantID, name, parsed.Lineage, creator)
+		if err != nil {
+			return err
+		}
+
+		var nextSerial int64
+		nextSerial = parsed.Serial
+		if nextSerial <= 0 {
+			if err := tx.QueryRow(ctx,
+				`SELECT COALESCE(MAX(serial), 0) + 1
+				 FROM   state_versions
+				 WHERE  state_id = $1`,
+				stateID,
+			).Scan(&nextSerial); err != nil {
+				return fmt.Errorf("compute next serial: %w", err)
+			}
+		}
+
+		parsedRows, err := buildResourceRows(stateID, nextSerial, parsed)
+		if err != nil {
+			return fmt.Errorf("normalize selected resources: %w", err)
+		}
+		if err := applyResourceDeltaSelected(ctx, tx, tenantID, stateID, nextSerial, parsedRows, changedAddresses); err != nil {
+			return fmt.Errorf("normalize selected resources: %w", err)
+		}
+
+		canonicalResources, err := buildCurrentStateResourcesFromOpenRows(ctx, tx, stateID)
+		if err != nil {
+			return fmt.Errorf("rebuild canonical resources: %w", err)
+		}
+		parsed.Serial = nextSerial
+		parsed.Resources = canonicalResources
+		if err := enforceTenantStateLimits(ctx, tx, tenantID, stateID, name, parsed); err != nil {
+			return err
+		}
+		storeBytes, err := rewriteStateResourcesAndSerial(rawState, canonicalResources, nextSerial)
+		if err != nil {
+			return fmt.Errorf("rewrite canonical state: %w", err)
+		}
+
+		var versionID string
+		err = tx.QueryRow(ctx,
+			`INSERT INTO state_versions
+			 	(state_id, tenant_id, serial, terraform_version, raw_state, source, created_by)
+			 VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
+			 RETURNING id`,
+			stateID, tenantID, nextSerial, parsed.TerraformVersion, string(storeBytes), source, actor,
+		).Scan(&versionID)
+		if err != nil {
+			if isUniqueViolation(err, "state_versions_state_id_serial_key") {
+				return ErrSerialConflict
+			}
+			return fmt.Errorf("insert state_version: %w", err)
+		}
+		if err := insertOutputs(ctx, tx, tenantID, versionID, parsed); err != nil {
+			return fmt.Errorf("normalize outputs: %w", err)
+		}
+
+		if _, err := tx.Exec(ctx,
+			`UPDATE states
+			 SET    current_version_id = $1, updated_at = now()
+			 WHERE  id = $2`,
+			versionID, stateID,
+		); err != nil {
+			return fmt.Errorf("update current_version_id: %w", err)
+		}
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO events (kind, tenant_id, state_id, state_version_id, actor, payload)
+			 VALUES ('state_write', $1, $2, $3, $4, jsonb_build_object('source', $5::text, 'serial', $6::bigint))`,
+			tenantID, stateID, versionID, actor, source, nextSerial,
+		); err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
+// WriteStateEngineDeltaForApply commits a native state-engine delta payload
+// without requiring the caller to send a full post-apply raw_state document.
+// The backend applies the selected resource-row delta, rebuilds the canonical
+// full resources section from authoritative open rows, then writes the next
+// state_version using the supplied top-level metadata and outputs.
+func (s *Store) WriteStateEngineDeltaForApply(ctx context.Context, name, applyID string, baseSerial int64, delta StateEngineDeltaCommit, source, actor string) error {
+	_ = applyID
+	_ = baseSerial
+
+	tenantID := auth.TenantFromContext(ctx)
+	changedAddresses := dedupeSortedStrings(append(append([]string(nil), delta.WriteSet...), delta.DeleteSet...))
+	parsed := &tfstate.State{
+		Version:          4,
+		TerraformVersion: strings.TrimSpace(delta.TerraformVersion),
+		Lineage:          strings.TrimSpace(delta.Lineage),
+		CheckResults:     delta.CheckResults,
+		Resources:        delta.Resources,
+	}
+
+	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		if err := enforceTenantLifecycleActive(ctx, tx, tenantID); err != nil {
+			return err
+		}
+		creator := initialStateCreatorKL
+		if strings.EqualFold(strings.TrimSpace(source), "http_backend") {
+			creator = initialStateCreatorBackend
+		}
+		stateID, err := upsertStateWithCreator(ctx, tx, tenantID, name, parsed.Lineage, creator)
+		if err != nil {
+			return err
+		}
+		currentOutputs, err := loadCurrentOutputs(ctx, tx, stateID)
+		if err != nil {
+			return err
+		}
+		parsed.Outputs = mergeOutputDelta(currentOutputs, delta.OutputWrites, delta.OutputDeleteSet)
+
+		var nextSerial int64
+		if err := tx.QueryRow(ctx,
+			`SELECT COALESCE(MAX(serial), 0) + 1
+			 FROM   state_versions
+			 WHERE  state_id = $1`,
+			stateID,
+		).Scan(&nextSerial); err != nil {
+			return fmt.Errorf("compute next serial: %w", err)
+		}
+
+		parsedRows, err := buildResourceRows(stateID, nextSerial, parsed)
+		if err != nil {
+			return fmt.Errorf("normalize selected resources: %w", err)
+		}
+		if err := applyResourceDeltaSelected(ctx, tx, tenantID, stateID, nextSerial, parsedRows, changedAddresses); err != nil {
+			return fmt.Errorf("normalize selected resources: %w", err)
+		}
+
+		canonicalResources, err := buildCurrentStateResourcesFromOpenRows(ctx, tx, stateID)
+		if err != nil {
+			return fmt.Errorf("rebuild canonical resources: %w", err)
+		}
+		parsed.Serial = nextSerial
+		parsed.Resources = canonicalResources
+		if err := enforceTenantStateLimits(ctx, tx, tenantID, stateID, name, parsed); err != nil {
+			return err
+		}
+		storeBytes, err := json.Marshal(parsed)
+		if err != nil {
+			return fmt.Errorf("marshal canonical state: %w", err)
+		}
+
+		var versionID string
+		err = tx.QueryRow(ctx,
+			`INSERT INTO state_versions
+			 	(state_id, tenant_id, serial, terraform_version, raw_state, source, created_by)
+			 VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
+			 RETURNING id`,
+			stateID, tenantID, nextSerial, parsed.TerraformVersion, string(storeBytes), source, actor,
+		).Scan(&versionID)
+		if err != nil {
+			if isUniqueViolation(err, "state_versions_state_id_serial_key") {
+				return ErrSerialConflict
+			}
+			return fmt.Errorf("insert state_version: %w", err)
+		}
+		if err := insertOutputs(ctx, tx, tenantID, versionID, parsed); err != nil {
+			return fmt.Errorf("normalize outputs: %w", err)
+		}
+
+		if _, err := tx.Exec(ctx,
+			`UPDATE states
+			 SET    current_version_id = $1, updated_at = now()
+			 WHERE  id = $2`,
+			versionID, stateID,
+		); err != nil {
+			return fmt.Errorf("update current_version_id: %w", err)
+		}
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO events (kind, tenant_id, state_id, state_version_id, actor, payload)
+			 VALUES ('state_write', $1, $2, $3, $4, jsonb_build_object('source', $5::text, 'serial', $6::bigint))`,
+			tenantID, stateID, versionID, actor, source, nextSerial,
+		); err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
+func loadCurrentOutputs(ctx context.Context, tx pgx.Tx, stateID string) (map[string]tfstate.Output, error) {
+	_, raw, err := readCurrentVersionRaw(ctx, tx, stateID)
+	switch {
+	case errors.Is(err, ErrStateNotFound):
+		return map[string]tfstate.Output{}, nil
+	case err != nil:
+		return nil, fmt.Errorf("read current outputs: %w", err)
+	}
+	parsed, err := tfstate.Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("parse current outputs: %w", err)
+	}
+	if parsed.Outputs == nil {
+		return map[string]tfstate.Output{}, nil
+	}
+	out := make(map[string]tfstate.Output, len(parsed.Outputs))
+	for name, value := range parsed.Outputs {
+		out[name] = value
+	}
+	return out, nil
+}
+
+func mergeOutputDelta(current, writes map[string]tfstate.Output, deletes []string) map[string]tfstate.Output {
+	out := make(map[string]tfstate.Output, len(current)+len(writes))
+	for name, value := range current {
+		out[name] = value
+	}
+	for _, name := range deletes {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		delete(out, name)
+	}
+	for name, value := range writes {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		out[name] = value
+	}
+	if len(out) == 0 {
+		return map[string]tfstate.Output{}
+	}
+	return out
 }
 
 // writeStateInternal is the shared body of WriteState and

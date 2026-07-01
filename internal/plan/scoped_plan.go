@@ -16,8 +16,9 @@ import (
 )
 
 type ScopedPlanOptions struct {
-	Refresh bool
-	Vars    map[string]json.RawMessage
+	Refresh             bool
+	Vars                map[string]json.RawMessage
+	ConfigRequiredNodes []string
 }
 
 const scopedBackendOverrideFilename = "kl_backend_override.auto.tf"
@@ -57,7 +58,7 @@ func RunScopedTerraformPlan(ctx context.Context, terraformBin, configDir string,
 	}
 	defer os.RemoveAll(dir)
 
-	if err := buildScopedWorkspace(configDir, dir, scope, selected); err != nil {
+	if err := buildScopedWorkspace(configDir, dir, scope, selected, opts.ConfigRequiredNodes); err != nil {
 		return nil, err
 	}
 	if err := writeScopedState(dir, sliced); err != nil {
@@ -282,10 +283,17 @@ func moduleHead(addr string) string {
 	return "module." + parts[1]
 }
 
-func buildScopedWorkspace(srcDir, dstDir string, scope *FileScope, analyzed *SelectedScope) error {
+func buildScopedWorkspace(srcDir, dstDir string, scope *FileScope, analyzed *SelectedScope, configRequiredNodes []string) error {
 	selectedFiles := map[string]struct{}{}
 	for _, rel := range scope.Relative {
 		selectedFiles[rel] = struct{}{}
+	}
+	requiredSet := make(map[string]struct{}, len(configRequiredNodes))
+	for _, addr := range configRequiredNodes {
+		addr = strings.TrimSpace(addr)
+		if addr != "" {
+			requiredSet[addr] = struct{}{}
+		}
 	}
 
 	entries, err := os.ReadDir(srcDir)
@@ -323,7 +331,7 @@ func buildScopedWorkspace(srcDir, dstDir string, scope *FileScope, analyzed *Sel
 			}
 			continue
 		}
-		filtered, err := filterSupportBlocks(srcPath)
+		filtered, err := filterSupportBlocks(srcPath, requiredSet)
 		if err != nil {
 			return err
 		}
@@ -508,7 +516,7 @@ type rootBlock struct {
 var rootBlockStartRE = regexp.MustCompile(`(?m)^[ \t]*(terraform|locals|provider|variable|output|resource|data|module|moved|removed|import)\b[^\n{]*\{`)
 var backendBlockStartRE = regexp.MustCompile(`(?m)^[ \t]*backend[ \t]+"[^"]+"[^\n{]*\{`)
 
-func filterSupportBlocks(path string) ([]byte, error) {
+func filterSupportBlocks(path string, requiredSet map[string]struct{}) ([]byte, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read support file %s: %w", path, err)
@@ -519,6 +527,18 @@ func filterSupportBlocks(path string) ([]byte, error) {
 	}
 	var out bytes.Buffer
 	for _, block := range blocks {
+		if len(requiredSet) > 0 {
+			if addr, ok := rootBlockAddress(block); ok {
+				if _, keep := requiredSet[addr]; keep {
+					out.Write(block.Bytes)
+					if len(block.Bytes) == 0 || block.Bytes[len(block.Bytes)-1] != '\n' {
+						out.WriteByte('\n')
+					}
+					out.WriteByte('\n')
+					continue
+				}
+			}
+		}
 		switch block.Type {
 		case "terraform", "provider", "variable", "locals", "resource", "data", "module":
 			out.Write(block.Bytes)
@@ -529,6 +549,27 @@ func filterSupportBlocks(path string) ([]byte, error) {
 		}
 	}
 	return out.Bytes(), nil
+}
+
+func rootBlockAddress(block rootBlock) (string, bool) {
+	switch block.Type {
+	case "resource":
+		m := resourceDeclRE.FindSubmatch(block.Bytes)
+		if len(m) == 3 {
+			return string(m[1]) + "." + string(m[2]), true
+		}
+	case "data":
+		m := dataDeclRE.FindSubmatch(block.Bytes)
+		if len(m) == 3 {
+			return "data." + string(m[1]) + "." + string(m[2]), true
+		}
+	case "module":
+		m := moduleDeclRE.FindSubmatch(block.Bytes)
+		if len(m) == 2 {
+			return "module." + string(m[1]), true
+		}
+	}
+	return "", false
 }
 
 func sanitizeTerraformForScopedWorkspace(src []byte) ([]byte, error) {
