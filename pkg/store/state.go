@@ -410,8 +410,7 @@ func (s *Store) WriteStateDeltaForApply(ctx context.Context, name, applyID strin
 			return err
 		}
 
-		var nextSerial int64
-		nextSerial = parsed.Serial
+		nextSerial := parsed.Serial
 		if nextSerial <= 0 {
 			if err := tx.QueryRow(ctx,
 				`SELECT COALESCE(MAX(serial), 0) + 1

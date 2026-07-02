@@ -64,14 +64,6 @@ func (opentofuEngine) DiscoverForTargets(configDir string, targets []string) (*I
 	return intent, nil
 }
 
-func expandTargetSliceAddressesOpenTofu(configDir string, targets []string) ([]string, error) {
-	graph, err := loadOpenTofuGraph(configDir)
-	if err != nil {
-		return nil, err
-	}
-	return expandTargetSliceAddressesFromGraph(graph, targets)
-}
-
 func expandTargetSliceAddressesFromGraph(graph map[string][]string, targets []string) ([]string, error) {
 	seen := map[string]struct{}{}
 	queue := make([]string, 0, len(targets)*2)

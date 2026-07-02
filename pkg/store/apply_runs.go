@@ -152,13 +152,13 @@ func (s *Store) BeginApplyRun(
 // ToVersionID may be empty if no state_version was written (failed /
 // aborted before commit).
 type FinishApplyRunInput struct {
-	Status           ApplyRunStatus
-	ToVersionID      string
-	CommittedSerial  *int64
-	ResourcesPlanned int
-	ResourcesApplied int
-	ResourcesFailed  int
-	ErrorSummary     string
+	Status           ApplyRunStatus `json:"status"`
+	ToVersionID      string         `json:"to_version_id"`
+	CommittedSerial  *int64         `json:"committed_serial"`
+	ResourcesPlanned int            `json:"resources_planned"`
+	ResourcesApplied int            `json:"resources_applied"`
+	ResourcesFailed  int            `json:"resources_failed"`
+	ErrorSummary     string         `json:"error_summary"`
 }
 
 // FinishApplyRun marks the run terminal and stamps finished_at.

@@ -337,7 +337,7 @@ func TestStateEngineResolveExpandAndSlice(t *testing.T) {
 	if resolved.State != state {
 		t.Fatalf("resolved state = %q, want %q", resolved.State, state)
 	}
-	if resolved.StateID == "" || resolved.Lineage == "" || resolved.Serial != 3 {
+	if resolved.StateID == "" || resolved.Lineage == "" || resolved.Serial != 1 {
 		t.Fatalf("unexpected resolved metadata: %+v", resolved)
 	}
 

@@ -185,22 +185,6 @@ func (c *stateEngineClient) resolve(ctx context.Context, stateName string) (*sta
 	return &out, nil
 }
 
-func (c *stateEngineClient) expand(ctx context.Context, stateName string, selectors []map[string]string, writeCandidates, readCandidates, undeployed []string) (*stateEngineScopeExpandResponse, error) {
-	var out stateEngineScopeExpandResponse
-	if err := c.api.postJSON(ctx, "/state-engine/scope/expand", stateName, map[string]any{
-		"state":     stateName,
-		"selectors": selectors,
-		"client_context": map[string]any{
-			"explicit_write_candidates":    dedupeSortedStrings(writeCandidates),
-			"explicit_read_candidates":     dedupeSortedStrings(readCandidates),
-			"undeployed_config_candidates": dedupeSortedStrings(undeployed),
-		},
-	}, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
 func (c *stateEngineClient) expandWithIntent(ctx context.Context, stateName string, selectors []map[string]string, intent *configscope.Intent) (*stateEngineScopeExpandResponse, error) {
 	configNodes := make([]map[string]any, 0, len(intent.ConfigNodes))
 	for _, node := range intent.ConfigNodes {
